@@ -271,7 +271,7 @@ granted:
   tokenPrinted: false
 env[2]:
   export CLOUDSDK_CONFIG="/home/you/work/.gcloud-agent"
-  export GOOGLE_OAUTH_ACCESS_TOKEN="$(cat /home/you/work/.gcloud-agent/access_token)"
+  export GOOGLE_OAUTH_ACCESS_TOKEN="$(cat "/home/you/work/.gcloud-agent/access_token")"
 files[4]{path,mode,holds}:
   /home/you/work/.gcloud-agent/access_token,0600,the access token
   /home/you/work/.gcloud-agent/configurations/config_default,0600,gcloud settings pointing at that token
