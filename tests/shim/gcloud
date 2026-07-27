@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""A fake `gcloud` that replays recorded fixtures.
+
+The test suite puts this directory first on PATH, so nothing under test can
+reach a real gcloud, a real credential, or the network.
+
+Routing: the argument vector's non-flag words become a key
+(`run jobs executions list` -> `run_jobs_executions_list`). The longest key is
+tried first, then progressively shorter prefixes, so a per-resource fixture
+(`run_jobs_execute_my-job.json`) wins over the generic one
+(`run_jobs_execute.json`).
+
+A key may also be qualified by a long flag that is present in the invocation:
+`<key>.<flag>` is tried before the bare `<key>`. That is what lets one scenario
+replay two different answers for the same subcommand depending on whether a
+flag was passed - real gcloud rejects `scheduler jobs list` without
+`--location` but answers it with one, and the suite has to be able to reproduce
+both from the same fixture directory.
+
+For each candidate the following are looked for, in each fixture directory in
+$FAKE_GCLOUD_FIXTURES order:
+
+  <key>.json   printed to stdout, exit 0
+  <key>.txt    printed to stdout verbatim, exit 0
+  <key>.err    printed to stderr; exit code from <key>.exit, else 1
+
+An unmatched key is a loud failure (exit 70) - a silently empty fixture would
+turn a routing bug into a passing test.
+"""
+
+import os
+import re
+import sys
+
+SAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def fixture_dirs():
+    raw = os.environ.get("FAKE_GCLOUD_FIXTURES", "")
+    return [d for d in raw.split(os.pathsep) if d]
+
+
+def record(argv):
+    log = os.environ.get("FAKE_GCLOUD_LOG")
+    if not log:
+        return
+    with open(log, "a") as handle:
+        handle.write("\x1f".join(argv) + "\n")
+
+
+def long_flags(argv):
+    """Long-flag names present in the invocation, in order, without values."""
+    names = []
+    for arg in argv:
+        if not arg.startswith("--") or arg == "--":
+            continue
+        name = arg[2:].split("=", 1)[0]
+        name = SAFE.sub("_", name).strip("_")
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def keys(argv):
+    words = [SAFE.sub("_", a).strip("_") for a in argv if not a.startswith("-")]
+    words = [w for w in words if w]
+    flags = long_flags(argv)
+    for length in range(len(words), 0, -1):
+        base = "_".join(words[:length])
+        # Flag-qualified fixtures win, so one directory can answer the same
+        # subcommand differently depending on the flags it was given.
+        for flag in flags:
+            yield "%s.%s" % (base, flag)
+        yield base
+
+
+def find(key):
+    for directory in fixture_dirs():
+        for suffix in (".json", ".txt", ".err"):
+            path = os.path.join(directory, key + suffix)
+            if os.path.isfile(path):
+                return path, suffix
+    return None, None
+
+
+def main(argv):
+    record(argv)
+    for key in keys(argv):
+        path, suffix = find(key)
+        if not path:
+            continue
+        with open(path, "r") as handle:
+            body = handle.read()
+        if suffix == ".err":
+            sys.stderr.write(body)
+            code_path = path[: -len(".err")] + ".exit"
+            code = 1
+            if os.path.isfile(code_path):
+                with open(code_path, "r") as handle:
+                    code = int(handle.read().strip() or "1")
+            return code
+        sys.stdout.write(body)
+        return 0
+
+    sys.stderr.write(
+        "fake-gcloud: no fixture for any of [%s]\n  argv: %s\n  searched: %s\n"
+        % (", ".join(keys(argv)), " ".join(argv), os.pathsep.join(fixture_dirs()))
+    )
+    return 70
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

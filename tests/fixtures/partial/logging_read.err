@@ -1,0 +1,1 @@
+ERROR: (gcloud.logging.read) PERMISSION_DENIED: Permission 'logging.logEntries.list' denied.

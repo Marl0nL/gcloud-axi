@@ -1,0 +1,77 @@
+[
+  {
+    "apiVersion": "serving.knative.dev/v1",
+    "kind": "Revision",
+    "metadata": {
+      "name": "my-service-00007-abc",
+      "creationTimestamp": "2024-07-01T09:00:00Z"
+    },
+    "spec": {
+      "containers": [
+        {
+          "image": "us-central1-docker.pkg.dev/my-project/my-repo/my-service@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    "status": {
+      "conditions": [
+        {
+          "type": "Ready",
+          "status": "True",
+          "reason": null,
+          "message": null
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "serving.knative.dev/v1",
+    "kind": "Revision",
+    "metadata": {
+      "name": "my-service-00006-abc",
+      "creationTimestamp": "2024-06-01T09:00:00Z"
+    },
+    "spec": {
+      "containers": [
+        {
+          "image": "us-central1-docker.pkg.dev/my-project/my-repo/my-service@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    "status": {
+      "conditions": [
+        {
+          "type": "Ready",
+          "status": "True",
+          "reason": null,
+          "message": null
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "serving.knative.dev/v1",
+    "kind": "Revision",
+    "metadata": {
+      "name": "my-service-00005-abc",
+      "creationTimestamp": "2024-05-01T09:00:00Z"
+    },
+    "spec": {
+      "containers": [
+        {
+          "image": "us-central1-docker.pkg.dev/my-project/my-repo/my-service@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    "status": {
+      "conditions": [
+        {
+          "type": "Ready",
+          "status": "False",
+          "reason": "ContainerMissing",
+          "message": "image not found"
+        }
+      ]
+    }
+  }
+]

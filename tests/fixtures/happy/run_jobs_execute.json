@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "name": "my-job-b9k3",
+    "labels": {
+      "run.googleapis.com/job": "my-job"
+    }
+  },
+  "status": {
+    "conditions": [
+      {
+        "type": "Ready",
+        "status": "Unknown",
+        "reason": "Running"
+      }
+    ]
+  }
+}

@@ -1,0 +1,1 @@
+ERROR: (gcloud.sql.instances.list) API [sqladmin.googleapis.com] not enabled on project [my-project].

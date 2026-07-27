@@ -1,0 +1,46 @@
+{
+  "bindings": [
+    {
+      "role": "roles/run.viewer",
+      "members": [
+        "serviceAccount:inspect@my-project.iam.gserviceaccount.com",
+        "user:operator@example.com"
+      ]
+    },
+    {
+      "role": "roles/logging.viewer",
+      "members": [
+        "serviceAccount:inspect@my-project.iam.gserviceaccount.com"
+      ]
+    },
+    {
+      "role": "roles/cloudsql.viewer",
+      "members": [
+        "serviceAccount:inspect@my-project.iam.gserviceaccount.com"
+      ]
+    },
+    {
+      "role": "roles/run.developer",
+      "members": [
+        "serviceAccount:operate@my-project.iam.gserviceaccount.com"
+      ]
+    },
+    {
+      "role": "roles/storage.objectViewer",
+      "members": [
+        "user:operator@example.com"
+      ],
+      "condition": {
+        "title": "only-prefix",
+        "expression": "resource.name.startsWith('x')"
+      }
+    },
+    {
+      "role": "roles/owner",
+      "members": [
+        "user:operator@example.com"
+      ]
+    }
+  ],
+  "etag": "BwXyz"
+}

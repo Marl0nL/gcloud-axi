@@ -1,0 +1,28 @@
+[
+  {
+    "id": "aaaa1111-2222-3333-4444-555566667777",
+    "status": "SUCCESS",
+    "createTime": "2024-05-01T08:55:00Z",
+    "startTime": "2024-05-01T08:55:10Z",
+    "finishTime": "2024-05-01T09:01:40Z",
+    "logUrl": "https://console.example/log/aaaa1111",
+    "substitutions": {
+      "TRIGGER_NAME": "deploy-main",
+      "REF_NAME": "main",
+      "SHORT_SHA": "abc1234"
+    }
+  },
+  {
+    "id": "bbbb1111-2222-3333-4444-555566667777",
+    "status": "FAILURE",
+    "createTime": "2024-04-30T18:00:00Z",
+    "startTime": "2024-04-30T18:00:05Z",
+    "finishTime": "2024-04-30T18:03:20Z",
+    "statusDetail": "step 2 exited with 1",
+    "substitutions": {
+      "TRIGGER_NAME": "deploy-main",
+      "REF_NAME": "main",
+      "SHORT_SHA": "def5678"
+    }
+  }
+]

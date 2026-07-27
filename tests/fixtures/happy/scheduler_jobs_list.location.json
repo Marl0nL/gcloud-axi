@@ -1,0 +1,26 @@
+[
+  {
+    "name": "projects/my-project/locations/us-central1/jobs/nightly-job-trigger",
+    "schedule": "0 2 * * *",
+    "state": "ENABLED",
+    "httpTarget": {
+      "uri": "https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/my-project/jobs/nightly-job:run"
+    }
+  },
+  {
+    "name": "projects/my-project/locations/us-central1/jobs/webhook-trigger",
+    "schedule": "*/5 * * * *",
+    "state": "ENABLED",
+    "httpTarget": {
+      "uri": "https://example.com/hooks/my-job?key=value"
+    }
+  },
+  {
+    "name": "projects/my-project/locations/us-central1/jobs/topic-trigger",
+    "schedule": "0 * * * *",
+    "state": "ENABLED",
+    "pubsubTarget": {
+      "topicName": "projects/my-project/topics/my-job"
+    }
+  }
+]
