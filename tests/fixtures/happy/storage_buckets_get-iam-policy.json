@@ -1,0 +1,10 @@
+{
+  "bindings": [
+    {
+      "role": "roles/storage.objectAdmin",
+      "members": [
+        "serviceAccount:operate@my-project.iam.gserviceaccount.com"
+      ]
+    }
+  ]
+}

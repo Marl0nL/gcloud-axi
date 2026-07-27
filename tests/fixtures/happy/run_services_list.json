@@ -1,0 +1,138 @@
+[
+  {
+    "apiVersion": "serving.knative.dev/v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "my-service",
+      "labels": {
+        "cloud.googleapis.com/location": "us-central1"
+      },
+      "annotations": {
+        "serving.knative.dev/lastModifier": "deployer@my-project.iam.gserviceaccount.com",
+        "serving.knative.dev/lastModifiedTime": "2024-05-01T09:14:00Z"
+      },
+      "creationTimestamp": "2024-01-05T11:00:00Z"
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "name": "my-service-00007-abc"
+        },
+        "spec": {
+          "serviceAccountName": "runtime@my-project.iam.gserviceaccount.com",
+          "containers": [
+            {
+              "image": "us-central1-docker.pkg.dev/my-project/my-repo/my-service@sha256:a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+              "env": [
+                {
+                  "name": "LOG_LEVEL",
+                  "value": "redacted-by-fixture"
+                },
+                {
+                  "name": "FEATURE_FLAGS",
+                  "value": "redacted-by-fixture"
+                },
+                {
+                  "name": "DATABASE_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "my-secret",
+                      "key": "latest"
+                    }
+                  }
+                },
+                {
+                  "name": "API_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "other-secret",
+                      "key": "latest"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "status": {
+      "conditions": [
+        {
+          "type": "Ready",
+          "status": "True",
+          "reason": null,
+          "message": null,
+          "lastTransitionTime": "2024-05-01T09:14:30Z"
+        }
+      ],
+      "latestReadyRevisionName": "my-service-00007-abc",
+      "latestCreatedRevisionName": "my-service-00007-abc",
+      "traffic": [
+        {
+          "revisionName": "my-service-00007-abc",
+          "percent": 100,
+          "latestRevision": true
+        }
+      ],
+      "url": "https://my-service-abcdef-uc.a.run.app"
+    }
+  },
+  {
+    "apiVersion": "serving.knative.dev/v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "worker-service",
+      "labels": {
+        "cloud.googleapis.com/location": "us-central1"
+      },
+      "annotations": {
+        "serving.knative.dev/lastModifier": "deployer@my-project.iam.gserviceaccount.com",
+        "serving.knative.dev/lastModifiedTime": "2024-05-01T09:14:00Z"
+      },
+      "creationTimestamp": "2024-01-05T11:00:00Z"
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "name": "worker-service-00007-abc"
+        },
+        "spec": {
+          "serviceAccountName": "runtime@my-project.iam.gserviceaccount.com",
+          "containers": [
+            {
+              "image": "us-central1-docker.pkg.dev/my-project/my-repo/worker-service@sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+              "env": [
+                {
+                  "name": "QUEUE_NAME",
+                  "value": "redacted-by-fixture"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "status": {
+      "conditions": [
+        {
+          "type": "Ready",
+          "status": "False",
+          "reason": "RevisionFailed",
+          "message": "the latest revision failed to become ready",
+          "lastTransitionTime": "2024-05-01T09:14:30Z"
+        }
+      ],
+      "latestReadyRevisionName": "worker-service-00007-abc",
+      "latestCreatedRevisionName": "worker-service-00007-abc",
+      "traffic": [
+        {
+          "revisionName": "worker-service-00007-abc",
+          "percent": 100,
+          "latestRevision": true
+        }
+      ],
+      "url": "https://worker-service-abcdef-uc.a.run.app"
+    }
+  }
+]

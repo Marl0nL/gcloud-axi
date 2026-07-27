@@ -1,0 +1,40 @@
+[
+  {
+    "timestamp": "2024-05-01T09:20:11Z",
+    "severity": "ERROR",
+    "resource": {
+      "type": "cloud_run_revision",
+      "labels": {
+        "service_name": "my-service",
+        "revision_name": "my-service-00007-abc"
+      }
+    },
+    "textPayload": "upstream request timed out after 30s while calling the downstream dependency; this message is deliberately long so the truncation path is exercised by the test suite and the size hint has something real to report about how much text was withheld from the default view"
+  },
+  {
+    "timestamp": "2024-05-01T09:19:02Z",
+    "severity": "WARNING",
+    "resource": {
+      "type": "cloud_run_revision",
+      "labels": {
+        "service_name": "my-service",
+        "revision_name": "my-service-00007-abc"
+      }
+    },
+    "jsonPayload": {
+      "message": "retrying request",
+      "attempt": 2
+    }
+  },
+  {
+    "timestamp": "2024-05-01T09:18:00Z",
+    "severity": "ERROR",
+    "resource": {
+      "type": "cloud_run_job",
+      "labels": {
+        "job_name": "nightly-job"
+      }
+    },
+    "textPayload": "task 0 exited with code 1"
+  }
+]

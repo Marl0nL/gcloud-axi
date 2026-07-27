@@ -1,0 +1,73 @@
+# gcloud-axi configuration - copy to ~/.config/gcloud-axi/config and edit.
+#
+# Every value below is a placeholder. This file is parsed, never executed, so
+# only plain KEY=VALUE lines are understood (a leading `export ` is tolerated).
+#
+# The whole file is OPTIONAL. With no config at all, every read command works
+# against your ambient gcloud credentials and the tiering subcommands
+# (grant/ledger/revoke) explain how to configure them.
+#
+# Override the path with $GCLOUD_AXI_CONFIG.
+
+# ---------------------------------------------------------------------------
+# Defaults
+# ---------------------------------------------------------------------------
+
+# Project used when --project is not given. Omit it and the tool falls back to
+# whatever gcloud itself is configured with. There is no built-in default.
+PROJECT=my-project
+
+# Region used when --region is not given. Omit it and region-scoped listings
+# span every region.
+REGION=us-central1
+
+# Where `grant` writes its isolated gcloud config directory when --dest is not
+# given. Default: ./.gcloud-agent
+#GRANT_DEST=./.gcloud-agent
+
+# Where `grant` appends its issuance records. $GCLOUD_AXI_LEDGER wins over this.
+# Default: <user config dir>/gcloud-axi/ledger.log
+#LEDGER=/var/log/gcloud-axi/ledger.log
+
+# ---------------------------------------------------------------------------
+# Credential tiers (OPTIONAL)
+# ---------------------------------------------------------------------------
+#
+# A tier is a named, short-lived, downscoped credential: `grant --tier <name>`
+# mints an access token by impersonating that tier's service account and writes
+# it into an isolated gcloud config directory. An agent handed that directory
+# cannot exceed the service account's IAM roles, even calling raw gcloud.
+#
+# Nothing about this layout is built into the tool. The names below are
+# examples; use whatever names, however many tiers, and whatever service
+# accounts suit your setup. Delete this whole section to turn tiering off.
+#
+# Declare which tiers exist. A tier not listed here does not exist, and
+# `grant --tier <it>` is refused.
+TIERS=inspect,operate
+
+# For each declared tier, TIER_<NAME>_* keys. The name is upper-cased with
+# hyphens turned into underscores: tier `read-only` -> TIER_READ_ONLY_*.
+#
+#   SERVICE_ACCOUNT  (required) the impersonation target; its IAM roles ARE the tier
+#   PROJECTS         (required) comma-separated project ids this tier may be issued for;
+#                    there is no implicit allow, so a project absent here is refused
+#   TTL              (required) default lifetime in seconds; --ttl overrides per issuance.
+#                    Google caps access tokens at 3600s unless your org policy raises it
+#   DESCRIPTION      (optional) shown in `grant --help` and in the grant result
+
+TIER_INSPECT_SERVICE_ACCOUNT=inspect@my-project.iam.gserviceaccount.com
+TIER_INSPECT_PROJECTS=my-project
+TIER_INSPECT_TTL=3600
+TIER_INSPECT_DESCRIPTION="read-only inspection"
+
+TIER_OPERATE_SERVICE_ACCOUNT=operate@my-project.iam.gserviceaccount.com
+TIER_OPERATE_PROJECTS=my-project
+TIER_OPERATE_TTL=1800
+TIER_OPERATE_DESCRIPTION="narrow operate: re-run jobs, no IAM or data changes"
+
+# A third tier spanning two projects would look like this:
+#TIERS=inspect,operate,audit
+#TIER_AUDIT_SERVICE_ACCOUNT=audit@my-project.iam.gserviceaccount.com
+#TIER_AUDIT_PROJECTS=my-project,my-other-project
+#TIER_AUDIT_TTL=900

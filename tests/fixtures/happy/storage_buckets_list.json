@@ -1,0 +1,6 @@
+[
+  {
+    "storage_url": "gs://my-bucket/",
+    "name": "my-bucket"
+  }
+]

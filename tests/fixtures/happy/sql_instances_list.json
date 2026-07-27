@@ -1,0 +1,44 @@
+[
+  {
+    "name": "my-instance",
+    "state": "RUNNABLE",
+    "databaseVersion": "POSTGRES_15",
+    "region": "us-central1",
+    "connectionName": "my-project:us-central1:my-instance",
+    "ipAddresses": [
+      {
+        "type": "PRIVATE",
+        "ipAddress": "10.0.0.3"
+      }
+    ],
+    "settings": {
+      "tier": "db-custom-2-7680",
+      "availabilityType": "ZONAL",
+      "dataDiskSizeGb": "20",
+      "ipConfiguration": {
+        "ipv4Enabled": false,
+        "privateNetwork": "projects/my-project/global/networks/my-network",
+        "requireSsl": true,
+        "authorizedNetworks": [
+          {
+            "name": "office",
+            "value": "203.0.113.0/24"
+          }
+        ]
+      },
+      "backupConfiguration": {
+        "enabled": true
+      },
+      "databaseFlags": [
+        {
+          "name": "max_connections",
+          "value": "200"
+        },
+        {
+          "name": "log_min_duration_statement",
+          "value": "1000"
+        }
+      ]
+    }
+  }
+]

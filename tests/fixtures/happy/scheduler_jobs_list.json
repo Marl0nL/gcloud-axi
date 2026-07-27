@@ -1,0 +1,10 @@
+[
+  {
+    "name": "projects/my-project/locations/us-central1/jobs/nightly-job-trigger",
+    "schedule": "0 2 * * *",
+    "state": "ENABLED",
+    "httpTarget": {
+      "uri": "https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/my-project/jobs/nightly-job:run"
+    }
+  }
+]

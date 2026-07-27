@@ -15,3 +15,25 @@ Ground rules:
 - Tests run offline against the fake-gcloud fixture shim; nothing in the test
   suite may call the real `gcloud` or touch a network.
 - Never print a token value to the terminal, a log, or the ledger.
+
+## Getting set up
+
+Python 3.8+ is the only requirement; the package uses the standard library
+only. Adding a third-party dependency needs a strong reason.
+
+```
+./test.sh                    # or: make test
+./test.sh test_tiering -v    # one module
+```
+
+The suite is end-to-end: it runs the real CLI as a subprocess against a fake
+`gcloud` placed first on `PATH`. To cover a new gcloud call, add a fixture
+under `tests/fixtures/<scenario>/` rather than loosening the isolation - the
+shim exits loudly on any call it has no fixture for.
+
+[AGENTS.md](AGENTS.md) documents the module layout, the fixture naming rules,
+and the two invariants (no secret-payload path, no token in output) that must
+not regress. Read it before a first change.
+
+[VERIFY.md](VERIFY.md) is the manual live checklist a maintainer runs before a
+release, covering the things an offline suite cannot prove.

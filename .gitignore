@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[co]
+.pytest_cache/
+
+# Isolated credential directories written by `gcloud-axi grant`.
+# These hold an access token; they must never be committed.
+.gcloud-agent/
+*.gcloud-agent/
+
+# Local editor/agent state
+.claude/
+.vscode/
+.idea/
