@@ -59,10 +59,34 @@ Adding coverage for a new gcloud call means adding a fixture, not relaxing this:
   (`run jobs executions list` → `run_jobs_executions_list`);
 - the shim tries the longest key first, so `run_jobs_execute_my-job.json` beats
   `run_jobs_execute.json`;
+- a key may be qualified by a long flag present in the invocation:
+  `<key>.<flag>` is tried before the bare `<key>`. That is how one scenario
+  replays two answers for the same subcommand depending on a flag - the reason
+  it exists is that real gcloud refuses `scheduler jobs list` without
+  `--location` and answers it with one, and the suite has to reproduce both to
+  catch a missing flag at all;
 - `<key>.err` plus optional `<key>.exit` simulate failures;
-- scenarios: `happy`, `empty`, `denied`, `expired`, `partial`. A scenario other
-  than `happy` falls back to `happy` for keys it does not define, so a scenario
-  only needs the files it changes.
+- scenarios: `happy`, `empty`, `denied`, `expired`, `partial`, `noregion`. A
+  scenario other than `happy` falls back to `happy` for keys it does not define,
+  so a scenario only needs the files it changes.
+
+## What the offline suite structurally cannot catch
+
+Live verification has already found two bugs of a kind no fixture can surface,
+so treat this class with suspicion:
+
+- **Argument vectors real gcloud rejects.** A fixture answers whatever key the
+  shim routes to, so a call missing a required flag still "works" offline.
+  Cloud Scheduler is per-location and needs `--location`; assume other APIs have
+  their own such requirements.
+- **The exact bytes of files gcloud reads as a value.** `active_config` holds a
+  configuration *name*, so a trailing newline made gcloud look for
+  `config_default\n`, silently lose the active account, and break every raw
+  `gcloud` call in a scoped environment - while every offline test passed.
+
+When adding either kind of thing, encode reality in the fixtures (a flagless
+vector that errors, an exact-bytes assertion) rather than assuming, and add the
+check to [VERIFY.md](VERIFY.md).
 
 An unmatched key makes the shim exit 70 with a loud message. That is
 intentional - a silently empty fixture turns a routing bug into a passing test.

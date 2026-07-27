@@ -56,6 +56,13 @@ Check while reading the output:
 - [ ] Counts match what the Cloud console shows.
 - [ ] `run status` shows env var **names** and secret **names**, never a value.
 - [ ] `secrets` shows no payload anywhere.
+- [ ] If any Cloud Run job has a Cloud Scheduler trigger in the resolved
+      region, `jobs` and `overview` show its `schedule` - not `null` and not a
+      `schedules unavailable` warning. Cloud Scheduler is a per-location API,
+      so this is the check that the location is actually being passed. With no
+      region resolvable (`--region` unset, no `REGION`, no gcloud `run/region`)
+      the warning must name *that* as the reason rather than claiming the API
+      is unreachable.
 - [ ] Every result ends with `help[]` lines whose placeholders are unresolved.
 - [ ] Timestamps and ages look right for the region you are in.
 
@@ -96,6 +103,13 @@ Confirm on the spot:
 - [ ] `ls -ld "$SCRATCH/scoped"` shows `drwx------` (0700).
 - [ ] `ls -l "$SCRATCH/scoped"` shows `-rw-------` (0600) on every file.
 - [ ] `grep -r . "$SCRATCH/scoped" --exclude=access_token` finds no token.
+- [ ] The two files gcloud reads as a *value* carry no trailing newline:
+      `wc -c < "$SCRATCH/scoped/active_config"` is exactly the length of the
+      configuration name (7 for `default`), and
+      `xxd "$SCRATCH/scoped/access_token" | tail -1` does not end in `0a`.
+      A newline in `active_config` makes gcloud look for `config_default\n`,
+      silently lose the active account, and break every raw `gcloud` call
+      below - the offline suite cannot see this.
 - [ ] `grep -c . "$GCLOUD_AXI_LEDGER"` grew by exactly one line, and that line
       contains no token.
 

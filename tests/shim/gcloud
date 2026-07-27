@@ -10,7 +10,14 @@ tried first, then progressively shorter prefixes, so a per-resource fixture
 (`run_jobs_execute_my-job.json`) wins over the generic one
 (`run_jobs_execute.json`).
 
-For each key the following are looked for, in each fixture directory in
+A key may also be qualified by a long flag that is present in the invocation:
+`<key>.<flag>` is tried before the bare `<key>`. That is what lets one scenario
+replay two different answers for the same subcommand depending on whether a
+flag was passed - real gcloud rejects `scheduler jobs list` without
+`--location` but answers it with one, and the suite has to be able to reproduce
+both from the same fixture directory.
+
+For each candidate the following are looked for, in each fixture directory in
 $FAKE_GCLOUD_FIXTURES order:
 
   <key>.json   printed to stdout, exit 0
@@ -41,11 +48,30 @@ def record(argv):
         handle.write("\x1f".join(argv) + "\n")
 
 
+def long_flags(argv):
+    """Long-flag names present in the invocation, in order, without values."""
+    names = []
+    for arg in argv:
+        if not arg.startswith("--") or arg == "--":
+            continue
+        name = arg[2:].split("=", 1)[0]
+        name = SAFE.sub("_", name).strip("_")
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 def keys(argv):
     words = [SAFE.sub("_", a).strip("_") for a in argv if not a.startswith("-")]
     words = [w for w in words if w]
+    flags = long_flags(argv)
     for length in range(len(words), 0, -1):
-        yield "_".join(words[:length])
+        base = "_".join(words[:length])
+        # Flag-qualified fixtures win, so one directory can answer the same
+        # subcommand differently depending on the flags it was given.
+        for flag in flags:
+            yield "%s.%s" % (base, flag)
+        yield base
 
 
 def find(key):

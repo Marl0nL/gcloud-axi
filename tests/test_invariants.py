@@ -117,6 +117,35 @@ class TestSuiteIsOfflineTest(CliTestCase):
         self.assertEqual(0, proc.returncode)
         self.assertIn("my-job-b9k3", out.decode("utf-8"))
 
+    def _shim(self, *argv):
+        env = dict(os.environ)
+        env["FAKE_GCLOUD_FIXTURES"] = os.path.join(FIXTURES, "happy")
+        proc = subprocess.Popen(
+            [os.path.join(SHIM_DIR, "gcloud")] + list(argv),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+        out, err = proc.communicate(timeout=30)
+        return proc.returncode, out.decode("utf-8"), err.decode("utf-8")
+
+    def test_flag_qualified_fixtures_answer_the_same_subcommand_differently(self):
+        """The shim must be able to reproduce a flag-dependent gcloud behaviour.
+
+        Real gcloud refuses `scheduler jobs list` without --location and answers
+        it with one. Encoding both halves is what makes the offline suite able
+        to catch a missing flag at all.
+        """
+        code, _, err = self._shim("scheduler", "jobs", "list", "--format=json")
+        self.assertEqual(1, code)
+        self.assertIn("location flag", err)
+
+        code, out, _ = self._shim(
+            "scheduler", "jobs", "list", "--location=us-central1", "--format=json"
+        )
+        self.assertEqual(0, code)
+        self.assertIn("0 2 * * *", out)
+
 
 class OutputContractTest(CliTestCase):
     LIST_COMMANDS = [

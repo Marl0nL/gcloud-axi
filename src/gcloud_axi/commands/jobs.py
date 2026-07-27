@@ -35,8 +35,9 @@ def help_out():
         notes=[
             "`jobs run` creates a new execution and never edits or deletes the job itself",
             "`jobs run` does not wait; poll with `gcloud-axi jobs` or read `gcloud-axi logs <job>`",
-            "Schedules are read from Cloud Scheduler when that API is reachable; otherwise the "
-            "schedule column is null and a warning is emitted",
+            "Schedules are read from Cloud Scheduler, which is a per-location API: a resolved "
+            "region is required to query it. Without one - or when the API is unreachable - the "
+            "schedule column is null and a warning says which of the two it was",
         ],
         examples=[
             "gcloud-axi jobs",
@@ -58,8 +59,19 @@ def schedules(ctx, warnings):
     Only an HTTP target addressing ``.../jobs/<name>[:run]`` names a Cloud Run
     job. Anything else - Pub/Sub targets, unrecognised URIs - yields no entry,
     so the job's schedule column stays an honest null rather than a guess.
+
+    Cloud Scheduler is a per-location API: `gcloud scheduler jobs list` refuses
+    to run without ``--location``. With no region resolvable there is nothing to
+    query, so this says so rather than issuing a call that cannot succeed.
     """
-    result = ctx.invoke(["scheduler", "jobs", "list"])
+    region = ctx.region()
+    if not region:
+        warnings.append(
+            "schedules unavailable: Cloud Scheduler is queried per location and no "
+            "region is resolvable - pass --region, or set REGION in the config"
+        )
+        return {}
+    result = ctx.invoke(["scheduler", "jobs", "list", "--location=%s" % region])
     if not result.ok:
         warnings.append(
             "schedules unavailable: %s" % getattr(result.error, "message", "unknown")

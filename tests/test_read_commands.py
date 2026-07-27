@@ -215,6 +215,55 @@ class JobsTest(CliTestCase):
         self.assertIn_("SUCCEEDED", run)
         self.assertIn_("FAILED", run)
 
+    def test_schedule_lookup_passes_the_location(self):
+        """Regression: Cloud Scheduler is a per-location API.
+
+        Without --location real gcloud refuses the call outright, so the
+        schedule column could never be populated. The happy fixtures now
+        reproduce that: the flagless vector errors, the flagged one answers.
+        """
+        run = self.assertOk(self.cli("jobs"))
+        scheduler_calls = [c for c in run.calls if "scheduler" in " ".join(c)]
+        self.assertTrue(scheduler_calls, run.describe())
+        self.assertTrue(
+            all("--location=us-central1" in c for c in scheduler_calls),
+            "scheduler listed without --location: %s" % scheduler_calls,
+        )
+        self.assertIn_("0 2 * * *", run)
+        self.assertNotIn_("schedules unavailable", run)
+
+    def test_schedule_lookup_honours_the_region_flag(self):
+        run = self.assertOk(self.cli("jobs", "--region", "europe-west1"))
+        scheduler_calls = [c for c in run.calls if "scheduler" in " ".join(c)]
+        self.assertTrue(
+            all("--location=europe-west1" in c for c in scheduler_calls),
+            "scheduler ignored --region: %s" % scheduler_calls,
+        )
+
+    def test_without_a_region_schedules_degrade_honestly(self):
+        """No location to query is a different failure from an unreachable API.
+
+        The warning has to say which, and no doomed call should be issued.
+        """
+        run = self.assertOk(self.cli("jobs", scenario="noregion", use_config=False))
+        self.assertIn_("schedules unavailable", run)
+        self.assertIn_("no region is resolvable", run)
+        self.assertIn_("null", run)
+        self.assertFalse(
+            [c for c in run.calls if "scheduler" in " ".join(c)],
+            "queried Cloud Scheduler with no location to query: %s" % run.describe(),
+        )
+
+    def test_overview_also_passes_the_location(self):
+        run = self.assertOk(self.cli("overview"))
+        scheduler_calls = [c for c in run.calls if "scheduler" in " ".join(c)]
+        self.assertTrue(scheduler_calls, run.describe())
+        self.assertTrue(
+            all("--location=us-central1" in c for c in scheduler_calls),
+            "overview listed scheduler without --location: %s" % scheduler_calls,
+        )
+        self.assertIn_("0 2 * * *", run)
+
     def test_empty_state(self):
         run = self.assertOk(self.cli("jobs", scenario="empty"))
         self.assertIn_("jobs: []", run)

@@ -86,6 +86,22 @@ def write_isolated_config(dest, token, project, service_account):
     ``configurations/config_<name>`` INI. Pointing ``auth/access_token_file``
     at a sibling file is what makes a *raw* `gcloud` invocation inside this
     environment scoped too - which is the point of the whole exercise.
+
+    Two of these files are read as a *value*, not as a text file, so neither
+    may carry a trailing newline:
+
+    * ``active_config`` holds a configuration NAME. gcloud uses its bytes
+      verbatim to build ``configurations/config_<name>``, so one stray newline
+      makes it look for ``config_default\\n``, fail to open it, and report "you
+      do not currently have an active account selected" for every call in the
+      environment. That failure is silent about its cause, so it is worth
+      guarding rather than trusting.
+    * ``access_token`` holds a bearer token. gcloud's own reader tolerates a
+      trailing newline, but a client library or script that reads the file
+      without stripping would send a malformed header, so it is written bare.
+
+    The INI and the other files this module writes are ordinary text and do end
+    with a newline.
     """
     dest = os.path.abspath(os.path.expanduser(dest))
     _mkdir_private(dest)
@@ -93,7 +109,7 @@ def write_isolated_config(dest, token, project, service_account):
     _mkdir_private(conf_dir)
 
     token_path = os.path.join(dest, TOKEN_FILE)
-    _write_private(token_path, token if token.endswith("\n") else token + "\n")
+    _write_private(token_path, token.strip())
 
     ini = [
         "[core]",
@@ -108,7 +124,7 @@ def write_isolated_config(dest, token, project, service_account):
     _write_private(
         os.path.join(conf_dir, "config_%s" % CONFIG_NAME), "\n".join(ini)
     )
-    _write_private(os.path.join(dest, "active_config"), CONFIG_NAME + "\n")
+    _write_private(os.path.join(dest, "active_config"), CONFIG_NAME)
     return dest, token_path
 
 

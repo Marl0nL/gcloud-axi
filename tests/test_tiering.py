@@ -84,6 +84,41 @@ class GrantTest(CliTestCase):
         self.assertIn("account = inspect@my-project.iam.gserviceaccount.com", body)
         self.assertNotIn(FAKE_TOKEN, body)
 
+    def test_active_config_is_exactly_the_configuration_name(self):
+        """Regression: a trailing newline here breaks the whole environment.
+
+        gcloud uses these bytes verbatim to build `configurations/config_<name>`,
+        so `default\\n` makes it look for `config_default\\n`, fail to open it,
+        and report "you do not currently have an active account selected" for
+        every call - including the raw `gcloud` calls the scoping depends on.
+        """
+        self.assertOk(self.grant())
+        with open(os.path.join(self.dest, "active_config"), "rb") as handle:
+            raw = handle.read()
+        self.assertEqual(b"default", raw)
+        self.assertEqual(raw, raw.strip(), "active_config carries stray whitespace")
+        # The file it points at must be the one that was actually written.
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.dest, "configurations", "config_" + raw.decode("ascii")
+                )
+            )
+        )
+
+    def test_token_file_is_exactly_the_token(self):
+        """The token is a value, not a text line - no trailing newline.
+
+        gcloud's own access_token_file reader tolerates one, but a client
+        library or script reading the file without stripping would send a
+        malformed Authorization header.
+        """
+        self.assertOk(self.grant())
+        with open(os.path.join(self.dest, "access_token"), "rb") as handle:
+            raw = handle.read()
+        self.assertEqual(FAKE_TOKEN.encode("ascii"), raw)
+        self.assertEqual(raw, raw.strip(), "access_token carries stray whitespace")
+
     def test_permissions_are_0700_and_0600(self):
         self.assertOk(self.grant())
         self.assertEqual(0o700, stat.S_IMODE(os.stat(self.dest).st_mode))
