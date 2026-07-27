@@ -133,6 +133,17 @@ really scopes a raw `gcloud` call. [VERIFY.md](VERIFY.md) is the by-hand
 checklist for that, run against real infrastructure before a release. Do not
 automate it onto shared credentials.
 
+## CI
+
+`.github/workflows/ci.yml` runs `./test.sh` on a Python matrix (README's
+floor plus latest stable) and a `ruff check` lint job - both credential-free
+and hermetic, matching the offline-only rule above. `ruff.toml` pins the
+rule selection to pyflakes plus pycodestyle errors (`E4`, `E7`, `E9`, `F`)
+rather than ruff's full default set, since the broader set (notably
+`UP031`, percent-formatting) would flag the codebase's existing style
+wholesale rather than catching real bugs. Widen it deliberately, not as a
+side effect of a ruff upgrade.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
