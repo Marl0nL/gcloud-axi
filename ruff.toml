@@ -4,5 +4,5 @@ target-version = "py38"
 # Pyflakes plus the pycodestyle error classes ruff has enabled by default
 # historically: real correctness signals (unused imports, undefined names,
 # syntax errors) without style-only rules that would demand reformatting
-# this codebase wholesale (see AGENTS.md and CONTRIBUTING.md).
+# this codebase wholesale (see the CI section of AGENTS.md).
 select = ["E4", "E7", "E9", "F"]
