@@ -56,7 +56,13 @@ def dispatch(ctx_factory, argv):
     name = args.positional[0] if args.positional else None
     limit = args.int("limit", default=100, minimum=1, maximum=1000)
 
-    secrets = ctx.call(["secrets", "list", "--limit=%d" % limit]) or []
+    call = ["secrets", "list", "--limit=%d" % limit]
+    if name:
+        # Filter server-side so a named lookup is definitive even in a project
+        # holding more secrets than --limit; the exact-match pass below then
+        # trims the filter's prefix matches.
+        call.append("--filter=name:%s" % name)
+    secrets = ctx.call(call) or []
     if not isinstance(secrets, list):
         secrets = [secrets]
     if name:

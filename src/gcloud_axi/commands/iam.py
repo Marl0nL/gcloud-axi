@@ -80,6 +80,18 @@ def _collect(policy, resource_kind, resource_name, sink):
             )
 
 
+def _filtered(bindings, member_filter, role_filter):
+    """Yield ``(member, entries)`` surviving the substring filters, sorted."""
+    for member in sorted(bindings):
+        if member_filter and member_filter not in member.lower():
+            continue
+        entries = bindings[member]
+        if role_filter:
+            entries = [e for e in entries if role_filter in str(e["role"]).lower()]
+        if entries:
+            yield member, entries
+
+
 def audit(ctx_factory, argv):
     if flags.wants_help(argv):
         return help_out(), 0
@@ -171,14 +183,7 @@ def audit(ctx_factory, argv):
 
     rows = []
     total_bindings = 0
-    for member in sorted(bindings):
-        entries = bindings[member]
-        if role_filter:
-            entries = [e for e in entries if role_filter in str(e["role"]).lower()]
-        if not entries:
-            continue
-        if member_filter and member_filter not in member.lower():
-            continue
+    for member, entries in _filtered(bindings, member_filter, role_filter):
         total_bindings += len(entries)
         roles = sorted({e["role"] for e in entries})
         shown = roles if args.get("full") else roles[:4]
@@ -231,14 +236,7 @@ def audit(ctx_factory, argv):
     )
 
     if args.get("full"):
-        for member in sorted(bindings):
-            if member_filter and member_filter not in member.lower():
-                continue
-            entries = bindings[member]
-            if role_filter:
-                entries = [e for e in entries if role_filter in str(e["role"]).lower()]
-            if not entries:
-                continue
+        for member, entries in _filtered(bindings, member_filter, role_filter):
             out.raw("")
             out.field("member", member)
             out.table(

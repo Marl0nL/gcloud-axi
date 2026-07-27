@@ -109,7 +109,49 @@ class GrantTest(CliTestCase):
     def test_env_lines_read_the_file_rather_than_carry_the_value(self):
         run = self.assertOk(self.grant())
         self.assertIn_('export CLOUDSDK_CONFIG="%s"' % self.dest, run)
-        self.assertIn_("GOOGLE_OAUTH_ACCESS_TOKEN=\"$(cat %s/access_token)\"" % self.dest, run)
+        self.assertIn_(
+            'GOOGLE_OAUTH_ACCESS_TOKEN="$(cat "%s/access_token")"' % self.dest, run
+        )
+
+    def test_env_lines_stay_sourceable_for_a_dest_containing_spaces(self):
+        dest = os.path.join(self.home, "scoped dir")
+        run = self.assertOk(
+            self.cli("grant", "--tier", "inspect", "--task", "my-task", "--dest", dest)
+        )
+        self.assertIn_('export CLOUDSDK_CONFIG="%s"' % dest, run)
+        self.assertIn_('GOOGLE_OAUTH_ACCESS_TOKEN="$(cat "%s/access_token")"' % dest, run)
+        with open(os.path.join(dest, "env.sh")) as handle:
+            self.assertIn('$(cat "%s/access_token")' % dest, handle.read())
+
+    def test_dest_with_a_double_quote_is_refused(self):
+        run = self.assertExit(
+            self.cli(
+                "grant", "--tier", "inspect", "--task", "my-task",
+                "--dest", os.path.join(self.home, 'bad"dir'),
+            ),
+            2,
+        )
+        self.assertErrorShape(run, "INVALID_VALUE")
+        self.assertFalse(os.path.exists(os.path.join(self.home, 'bad"dir')))
+
+    def test_dest_that_is_an_existing_file_is_a_structured_error(self):
+        with open(self.dest, "w") as handle:
+            handle.write("occupied\n")
+        run = self.assertExit(self.grant(), 1)
+        self.assertErrorShape(run, "INTERNAL")
+        self.assertHasHelp(run)
+        self.assertNotIn("Traceback", run.stderr, run.describe())
+
+    def test_quoted_config_value_keeps_no_trailing_comment(self):
+        self.write_config(
+            TIER_CONFIG.replace(
+                'TIER_INSPECT_DESCRIPTION="read-only inspection"',
+                'TIER_INSPECT_DESCRIPTION="read-only inspection"  # human note',
+            )
+        )
+        run = self.assertOk(self.grant())
+        self.assertIn_("tierDescription: read-only inspection", run)
+        self.assertNotIn_("human note", run)
 
     def test_marker_records_metadata_without_a_token(self):
         self.assertOk(self.grant())
@@ -247,7 +289,15 @@ class LedgerTest(CliTestCase):
         run = self.assertOk(self.cli("ledger"))
         self.assertIn_("issuances: []", run)
         self.assertIn_("count: 0", run)
+        self.assertIn_("exists: false", run)
         self.assertIn_("tokensRecorded: never", run)
+
+    def test_an_existing_but_empty_ledger_file_reports_exists(self):
+        open(self.ledger_path, "w").close()
+        run = self.assertOk(self.cli("ledger"))
+        self.assertIn_("exists: true", run)
+        self.assertIn_("totalRecords: 0", run)
+        self.assertIn_("issuances: []", run)
 
     def test_records_are_listed_with_state(self):
         self.assertOk(

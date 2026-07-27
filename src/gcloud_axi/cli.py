@@ -87,6 +87,17 @@ def main(argv):
     except KeyboardInterrupt:
         AxiError("interrupted", code="INTERRUPTED").render().emit()
         return 1
+    except Exception as exc:
+        AxiError(
+            "unexpected internal error: %s" % exc,
+            code="INTERNAL",
+            help_lines=[
+                "Re-run the command; if this recurs, report the exact invocation "
+                "at the project's issue tracker",
+            ],
+            fields=[("exceptionType", type(exc).__name__)],
+        ).render().emit()
+        return 1
 
     out.emit()
     return code

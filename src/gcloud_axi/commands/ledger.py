@@ -5,6 +5,8 @@ ever appends. This tool ships no subcommand that edits or deletes a line, on
 purpose - a record you can rewrite answers no question worth asking.
 """
 
+import os
+
 from .. import config as config_mod, flags, helptext, tiering, timeutil, toon
 
 LEDGER_FLAGS = {
@@ -74,7 +76,7 @@ def dispatch(ctx_factory, argv):
         "ledger",
         [
             ("path", path),
-            ("exists", total > 0 or malformed > 0),
+            ("exists", os.path.isfile(path)),
             ("totalRecords", total),
             ("matched", matched),
             ("shown", len(records)),

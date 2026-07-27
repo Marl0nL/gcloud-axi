@@ -220,6 +220,18 @@ class JobsTest(CliTestCase):
         self.assertIn_("jobs: []", run)
         self.assertIn_("note: 0 Cloud Run jobs", run)
 
+    def test_schedule_joins_only_on_the_jobs_path_segment(self):
+        run = self.assertOk(self.cli("jobs"))
+        nightly = run.line("nightly-job,")
+        self.assertIsNotNone(nightly, run.describe())
+        self.assertIn("0 2 * * *", nightly)
+        # `my-job` appears in an unrelated webhook URI and a Pub/Sub topic in
+        # the scheduler fixture; neither addresses a jobs/<name> segment, so
+        # its schedule must stay an honest null.
+        other = run.line("my-job,")
+        self.assertIsNotNone(other, run.describe())
+        self.assertTrue(other.startswith("my-job,null,"), run.describe())
+
     def test_run_starts_an_execution_without_waiting(self):
         run = self.assertOk(self.cli("jobs", "run", "my-job"))
         self.assertIn_("execution: my-job-b9k3", run)
@@ -290,6 +302,22 @@ class SecretsTest(CliTestCase):
     def test_empty_state(self):
         run = self.assertOk(self.cli("secrets", scenario="empty"))
         self.assertIn_("secrets: []", run)
+
+    def test_named_lookup_filters_server_side(self):
+        run = self.assertOk(self.cli("secrets", "my-secret"))
+        self.assertIn_("my-secret", run)
+        self.assertNotIn_("other-secret", run)
+        list_calls = [c for c in run.calls if "secrets" in c and "list" in c]
+        self.assertTrue(
+            any("--filter=name:my-secret" in c for c in list_calls), run.describe()
+        )
+
+    def test_unnamed_listing_passes_no_filter(self):
+        run = self.assertOk(self.cli("secrets"))
+        for call in run.calls:
+            self.assertFalse(
+                any(a.startswith("--filter") for a in call), run.describe()
+            )
 
     def test_help_explains_the_payload_boundary(self):
         run = self.assertOk(self.cli("secrets", "--help"))

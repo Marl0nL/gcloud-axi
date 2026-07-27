@@ -70,6 +70,26 @@ class TestSuiteIsOfflineTest(CliTestCase):
         run = self.assertOk(self.cli("run", "status"))
         self.assertTrue(run.calls, run.describe())
 
+    def test_an_ambient_gcloud_override_cannot_bypass_the_shim(self):
+        os.environ["GCLOUD_AXI_GCLOUD"] = "/nonexistent/real-gcloud"
+        self.addCleanup(os.environ.pop, "GCLOUD_AXI_GCLOUD", None)
+        run = self.assertOk(self.cli("run", "status"))
+        self.assertTrue(run.calls, run.describe())
+
+    def test_a_timed_out_gcloud_is_killed_and_reported(self):
+        sys.path.insert(0, os.path.join(ROOT, "src"))
+        from gcloud_axi import gcloudcmd
+
+        script = os.path.join(self.home, "slow-gcloud")
+        with open(script, "w") as handle:
+            handle.write("#!/bin/sh\nsleep 30\n")
+        os.chmod(script, 0o755)
+        os.environ["GCLOUD_AXI_GCLOUD"] = script
+        self.addCleanup(os.environ.pop, "GCLOUD_AXI_GCLOUD", None)
+        result = gcloudcmd.invoke(["projects", "list"], timeout=1)
+        self.assertFalse(result.ok)
+        self.assertEqual("TIMEOUT", result.error.code)
+
     def test_an_unrecorded_call_fails_loudly_rather_than_silently(self):
         env = dict(os.environ)
         env["FAKE_GCLOUD_FIXTURES"] = os.path.join(FIXTURES, "happy")

@@ -90,6 +90,16 @@ def dispatch(ctx_factory, argv):
 
     dest = args.get("dest") or cfg.get("GRANT_DEST") or DEFAULT_DEST
     dest = os.path.abspath(os.path.expanduser(dest))
+    for ch in '"$`\\\n':
+        if ch in dest:
+            raise UsageError(
+                "destination path contains %r, which cannot be carried safely "
+                "in the emitted shell environment lines" % ch,
+                code="INVALID_VALUE",
+                help_lines=[
+                    'Choose a --dest without `"`, `$`, backtick, backslash or newline',
+                ],
+            )
     replaced = os.path.exists(os.path.join(dest, tiering.TOKEN_FILE))
 
     token = _mint(tier, ttl, project)

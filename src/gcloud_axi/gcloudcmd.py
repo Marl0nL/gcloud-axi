@@ -103,6 +103,7 @@ def invoke(args, project=None, text=False, env=None, timeout=None):
         )
     except subprocess.TimeoutExpired:
         proc.kill()
+        proc.communicate()
         return Result(
             False,
             error=GcloudError(

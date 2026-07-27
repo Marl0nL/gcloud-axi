@@ -1,7 +1,5 @@
 """`gcloud-axi jobs` and `gcloud-axi jobs run <job>` - Cloud Run jobs."""
 
-import re
-
 from .. import flags, helptext, resources, timeutil, toon
 from ..errors import UsageError
 
@@ -55,7 +53,12 @@ def dispatch(ctx_factory, argv):
 
 
 def schedules(ctx, warnings):
-    """Map job name -> Cloud Scheduler schedule, best effort."""
+    """Map job name -> Cloud Scheduler schedule, joined strictly on the target URI.
+
+    Only an HTTP target addressing ``.../jobs/<name>[:run]`` names a Cloud Run
+    job. Anything else - Pub/Sub targets, unrecognised URIs - yields no entry,
+    so the job's schedule column stays an honest null rather than a guess.
+    """
     result = ctx.invoke(["scheduler", "jobs", "list"])
     if not result.ok:
         warnings.append(
@@ -66,23 +69,28 @@ def schedules(ctx, warnings):
     for entry in result.data or []:
         if not isinstance(entry, dict):
             continue
-        target = (
-            resources.dig(entry, "httpTarget", "uri")
-            or resources.dig(entry, "pubsubTarget", "topicName")
-            or ""
-        )
-        schedule = entry.get("schedule")
-        state = entry.get("state")
-        # Cloud Run job triggers address the job by name inside the target URI,
-        # e.g. .../namespaces/<project>/jobs/<job-name>:run
-        for token in re.split(r"[/?:&=]+", str(target)):
-            if token and token not in mapping:
-                mapping[token] = {
-                    "schedule": schedule,
-                    "state": state,
-                    "scheduler": resources.short_name(entry.get("name")),
-                }
+        name = _target_job(resources.dig(entry, "httpTarget", "uri"))
+        if name and name not in mapping:
+            mapping[name] = {
+                "schedule": entry.get("schedule"),
+                "state": entry.get("state"),
+                "scheduler": resources.short_name(entry.get("name")),
+            }
     return mapping
+
+
+def _target_job(uri):
+    """The job name in a Cloud Run trigger URI (``.../jobs/<name>[:run]``), or None."""
+    if not uri:
+        return None
+    path = str(uri).split("?", 1)[0]
+    if "://" in path:
+        path = path.split("://", 1)[1]
+    segments = path.split("/")
+    for i in range(len(segments) - 1):
+        if segments[i] == "jobs":
+            return segments[i + 1].split(":", 1)[0] or None
+    return None
 
 
 def latest_executions(ctx, warnings, limit):

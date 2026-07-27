@@ -120,7 +120,7 @@ def env_lines(dest, token_path):
     """
     return [
         'export CLOUDSDK_CONFIG="%s"' % dest,
-        'export GOOGLE_OAUTH_ACCESS_TOKEN="$(cat %s)"' % token_path,
+        'export GOOGLE_OAUTH_ACCESS_TOKEN="$(cat "%s")"' % token_path,
     ]
 
 

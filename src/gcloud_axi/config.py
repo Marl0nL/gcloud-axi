@@ -73,6 +73,18 @@ def _strip_comment(value):
     return "".join(out)
 
 
+def _parse_value(raw):
+    """One value's text: quoted (with an optional trailing comment) or bare."""
+    if raw and raw[0] in ("'", '"'):
+        end = raw.find(raw[0], 1)
+        if end != -1:
+            rest = raw[end + 1 :].strip()
+            if not rest or rest.startswith("#"):
+                return raw[1:end]
+        return _unquote(raw)
+    return _strip_comment(raw).strip()
+
+
 class Tier(object):
     def __init__(self, name, service_account, projects, ttl, description):
         self.name = name
@@ -191,11 +203,7 @@ def load(path=None):
                 )
             key, raw = line.split("=", 1)
             key = key.strip()
-            raw = raw.strip()
-            if raw and raw[0] in ("'", '"'):
-                values[key] = _unquote(raw)
-            else:
-                values[key] = _strip_comment(raw).strip()
+            values[key] = _parse_value(raw.strip())
     return Config(values, path, exists)
 
 

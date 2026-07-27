@@ -72,6 +72,12 @@ class CliTestCase(unittest.TestCase):
             search.append(os.path.join(FIXTURES, "happy"))
 
         env = dict(os.environ)
+        # Ambient overrides must never leak in: a GCLOUD_AXI_GCLOUD or
+        # CLOUDSDK_* setting in the caller's shell could point past the shim
+        # regardless of which entry point launched the tests.
+        for key in list(env):
+            if key.startswith("GCLOUD_AXI_") or key.startswith("CLOUDSDK_"):
+                env.pop(key)
         env.update(
             {
                 "HOME": self.home,
@@ -80,10 +86,8 @@ class CliTestCase(unittest.TestCase):
                 "FAKE_GCLOUD_FIXTURES": os.pathsep.join(search),
                 "FAKE_GCLOUD_LOG": self.call_log,
                 "GCLOUD_AXI_LEDGER": self.ledger_path,
-                "CLOUDSDK_CONFIG": "",
             }
         )
-        env.pop("CLOUDSDK_CONFIG")
         if use_config:
             env["GCLOUD_AXI_CONFIG"] = self.config_path
         env.update(extra_env)
