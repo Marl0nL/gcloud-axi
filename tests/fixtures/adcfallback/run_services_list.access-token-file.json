@@ -1,0 +1,12 @@
+[
+  {
+    "metadata": {"name": "my-service", "namespace": "my-project"},
+    "status": {
+      "url": "https://my-service-abcdef-uc.a.run.app",
+      "conditions": [{"type": "Ready", "status": "True"}],
+      "latestReadyRevisionName": "my-service-00007-abc",
+      "traffic": [{"revisionName": "my-service-00007-abc", "percent": 100}]
+    },
+    "spec": {"template": {"spec": {"containers": [{"image": "us-docker.pkg.dev/my-project/app/my-service@sha256:aaaa"}]}}}
+  }
+]

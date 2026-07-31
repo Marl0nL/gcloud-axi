@@ -13,6 +13,8 @@ Two rules govern everything in this module:
 
 import json
 import os
+import shutil
+import tempfile
 
 from . import config as config_mod
 from . import timeutil
@@ -158,6 +160,39 @@ def write_marker(dest, record):
     path = os.path.join(dest, MARKER_FILE)
     _write_private(path, json.dumps(safe, indent=2, sort_keys=True) + "\n")
     return path
+
+
+# -- the scratch token file -------------------------------------------------
+#
+# A token that is used for the lifetime of one process - the ADC credential a
+# read verb falls back to, or the impersonated credential `diagnose` re-issues
+# a call as - still has to reach gcloud somehow. It is handed over as a file
+# rather than an environment variable or an argument: an argument would put the
+# value in every process listing on the machine, and an environment variable
+# would put it in /proc/<pid>/environ for the whole subprocess tree.
+#
+# Keeping the write here means this module remains the single place in the tool
+# that puts a credential on disk.
+
+
+def write_scratch_token(token):
+    """Write ``token`` to a 0600 file in a fresh 0700 directory.
+
+    Returns ``(directory, token_path)``. The caller is responsible for calling
+    :func:`discard_scratch_token` - the value is meant to outlive neither the
+    process nor the failure that made it necessary.
+    """
+    directory = tempfile.mkdtemp(prefix="gcloud-axi-token-")
+    os.chmod(directory, 0o700)
+    path = os.path.join(directory, TOKEN_FILE)
+    _write_private(path, token.strip())
+    return directory, path
+
+
+def discard_scratch_token(directory):
+    """Remove a scratch directory and the token file inside it."""
+    if directory:
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 def _mkdir_private(path):

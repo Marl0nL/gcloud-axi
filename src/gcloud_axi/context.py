@@ -47,8 +47,13 @@ class Context(object):
                 self.config.path
             )
             return
+        # A config lookup reads the local gcloud configuration and must answer
+        # for the ambient machine even inside a diagnose credential override -
+        # and a substituted credential may only carry read vectors anyway.
         result = gcloudcmd.invoke(
-            ["config", "get-value", "core/project", "--format=value(.)"], text=True
+            ["config", "get-value", "core/project", "--format=value(.)"],
+            text=True,
+            credential=gcloudcmd.AMBIENT,
         )
         if result.ok and result.data:
             value = result.data.strip()
@@ -89,7 +94,9 @@ class Context(object):
             self._region, self._region_source = from_config, "config"
             return
         result = gcloudcmd.invoke(
-            ["config", "get-value", "run/region", "--format=value(.)"], text=True
+            ["config", "get-value", "run/region", "--format=value(.)"],
+            text=True,
+            credential=gcloudcmd.AMBIENT,
         )
         if result.ok and result.data:
             value = result.data.strip()
@@ -119,24 +126,13 @@ class Context(object):
 def active_credential():
     """Best-effort description of the credential gcloud would use right now.
 
-    Returns a dict with ``account`` and ``type``. Never raises: ambient status
-    has to render something even when gcloud is unhappy.
+    Identity only - this says nothing about whether the credential still works.
+    :func:`gcloud_axi.credentials.probe_cli` is the one that proves that, and
+    `gcloud-axi auth` is where a caller should be sent for the answer.
     """
-    info = {"account": None, "type": None, "error": None}
-    result = gcloudcmd.invoke(["auth", "list", "--filter=status:ACTIVE"])
-    if not result.ok:
-        info["error"] = getattr(result.error, "message", "unavailable")
-        return info
-    entries = result.data or []
-    if not isinstance(entries, list) or not entries:
-        return info
-    account = entries[0].get("account")
-    info["account"] = account
-    if account and account.endswith(".iam.gserviceaccount.com"):
-        info["type"] = "service_account"
-    elif account:
-        info["type"] = "user"
-    return info
+    from . import credentials
+
+    return credentials.cli_identity()
 
 
 def grant_marker(path=None):

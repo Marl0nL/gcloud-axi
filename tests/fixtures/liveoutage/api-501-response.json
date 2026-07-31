@@ -1,0 +1,7 @@
+{
+ "error": {
+  "code": 501,
+  "message": "Operation is not implemented, or supported, or enabled.",
+  "status": "UNIMPLEMENTED"
+ }
+}

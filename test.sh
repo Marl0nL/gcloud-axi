@@ -21,6 +21,12 @@ PYTHON="${PYTHON:-python3}"
 unset GCLOUD_AXI_GCLOUD || true
 unset CLOUDSDK_CONFIG || true
 
+# The provider-status lookup is the tool's only network read. Off by default for
+# anything the suite runs in-process; tests/harness.py strips this for the
+# subprocess CLI runs and points them at a `file://` fixture instead, so both
+# halves of the suite stay offline without either relying on the other.
+export GCLOUD_AXI_PROVIDER_STATUS=off
+
 echo "== syntax =="
 "$PYTHON" -m compileall -q src tests gcloud-axi >/dev/null
 echo "ok"

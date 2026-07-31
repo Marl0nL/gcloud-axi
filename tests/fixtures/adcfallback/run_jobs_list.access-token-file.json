@@ -1,0 +1,68 @@
+[
+  {
+    "apiVersion": "run.googleapis.com/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "my-job",
+      "labels": {
+        "cloud.googleapis.com/location": "us-central1"
+      }
+    },
+    "spec": {
+      "template": {
+        "spec": {
+          "template": {
+            "spec": {
+              "containers": [
+                {
+                  "image": "us-central1-docker.pkg.dev/my-project/my-repo/my-job@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "status": {
+      "conditions": [
+        {
+          "type": "Ready",
+          "status": "True"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "run.googleapis.com/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "nightly-job",
+      "labels": {
+        "cloud.googleapis.com/location": "us-central1"
+      }
+    },
+    "spec": {
+      "template": {
+        "spec": {
+          "template": {
+            "spec": {
+              "containers": [
+                {
+                  "image": "us-central1-docker.pkg.dev/my-project/my-repo/nightly-job@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "status": {
+      "conditions": [
+        {
+          "type": "Ready",
+          "status": "True"
+        }
+      ]
+    }
+  }
+]

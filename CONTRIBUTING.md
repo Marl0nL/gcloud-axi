@@ -32,8 +32,7 @@ under `tests/fixtures/<scenario>/` rather than loosening the isolation - the
 shim exits loudly on any call it has no fixture for.
 
 [AGENTS.md](AGENTS.md) documents the module layout, the fixture naming rules,
-and the two invariants (no secret-payload path, no token in output) that must
-not regress. Read it before a first change.
+and the invariants that must not regress. Read it before a first change.
 
 [VERIFY.md](VERIFY.md) is the manual live checklist a maintainer runs before a
 release, covering the things an offline suite cannot prove.

@@ -12,3 +12,8 @@ __pycache__/
 .claude/
 .vscode/
 .idea/
+
+# Reference AXI skill installed for development (`npx skills add kunchenguid/axi`).
+# It is a copy of someone else's skill, not part of this tool.
+.agents/
+skills-lock.json

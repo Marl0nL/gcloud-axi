@@ -154,6 +154,24 @@ class Out(object):
         """Contextual next-step templates, printed last."""
         return self.list_lines("help", items)
 
+    def insert_before_help(self, lines):
+        """Splice lines in ahead of the trailing ``help[]``.
+
+        Something learned while a command ran - that a read fell back to another
+        credential, say - has to reach the reader without displacing the
+        next-step hints from the end, where every other command puts them.
+        """
+        lines = [line for line in lines if line is not None]
+        if not lines:
+            return self
+        cut = len(self.lines)
+        for index in range(len(self.lines) - 1, -1, -1):
+            if self.lines[index].startswith("help["):
+                cut = index
+                break
+        self.lines[cut:cut] = lines
+        return self
+
     # -- rendering ----------------------------------------------------------
 
     def text(self):

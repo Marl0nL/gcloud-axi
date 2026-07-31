@@ -33,6 +33,8 @@ Confirm the empty states are explicit rather than silent.
 
 ```
 gcloud-axi --project "$PROJECT"
+gcloud-axi auth
+gcloud-axi diagnose --project "$PROJECT"
 gcloud-axi overview --project "$PROJECT"
 gcloud-axi overview --project "$PROJECT" --full
 gcloud-axi run status --project "$PROJECT"
@@ -87,6 +89,121 @@ gcloud-axi sql proxy my-instance --project "$PROJECT"
 
 - [ ] `started: false`, a `command[]` line you can copy, and no proxy process
       started (`pgrep -f cloud-sql-proxy` finds nothing new).
+
+## 2b. The credential subsystem
+
+This is the section the offline suite can least stand in for: it turns on
+whether `--access-token-file` really scopes a live `gcloud` call, and on how
+real gcloud words its refusals. Both are things a fixture can only assert, not
+discover.
+
+### The dual probe
+
+```
+gcloud-axi auth
+gcloud-axi auth --no-probe
+```
+
+- [ ] `cli:` and `adc:` both report a state, and it matches reality: cross-check
+      with `gcloud auth list` and `gcloud auth application-default print-access-token
+      >/dev/null; echo $?`.
+- [ ] The `adc.source` path is the file gcloud actually uses. Compare with
+      `gcloud info --format='value(config.paths.global_config_dir)'`.
+- [ ] **No token value appears anywhere** in either output. Confirm the hard way:
+      `gcloud-axi auth | grep -c 'ya29\.'` is `0`.
+- [ ] `--no-probe` issues no `print-access-token` call at all (watch with
+      `gcloud-axi auth --no-probe` under `strace -f -e trace=execve` or simply
+      confirm it returns instantly and says `probed: false`).
+
+### A genuinely lapsed CLI credential
+
+Simulate one **without touching your real credential** by pointing gcloud at an
+empty configuration directory, so the CLI half is absent while ADC is untouched:
+
+```
+export SCRATCH="$(mktemp -d)"
+CLOUDSDK_CONFIG="$SCRATCH/empty" gcloud-axi auth
+CLOUDSDK_CONFIG="$SCRATCH/empty" gcloud-axi run status --project "$PROJECT"
+```
+
+- [ ] `auth` reports the CLI half as `absent`/`lapsed` and ADC as `live`, with
+      `inStep: false`.
+- [ ] `run status` **still returns data**, with a `credentialFallback:` block
+      naming `used: adc`. This is the whole of finding 1b, and it is the one
+      thing no fixture can prove: it needs real gcloud to accept
+      `--access-token-file` on a real read.
+- [ ] While that read is running, `ps auxww | grep -c 'ya29\.'` is `0` - the
+      token travels as a path, never in an argument vector.
+- [ ] After it exits, the scratch token directory is gone:
+      `ls -d /tmp/gcloud-axi-token-* 2>/dev/null` finds nothing.
+
+A truly expired (rather than absent) CLI credential is worth catching once if
+you can, since the two produce different gcloud prose and only the expired one
+should classify as `CREDENTIAL_EXPIRED`. Wait out a `grant --ttl 60` from
+section 3 and re-run `gcloud-axi auth` inside that environment.
+
+- [ ] A mutating verb does **not** fall back. With the same empty
+      `CLOUDSDK_CONFIG`, `gcloud-axi jobs run my-job` must fail on the
+      credential rather than quietly running as ADC, and no
+      `--access-token-file` may appear in its call.
+
+### `diagnose`
+
+```
+gcloud-axi diagnose --project "$PROJECT"
+gcloud-axi diagnose run status --project "$PROJECT"
+gcloud-axi diagnose run status --as inspect@my-project.iam.gserviceaccount.com --project "$PROJECT"
+gcloud-axi diagnose jobs run my-job ; echo "expect 2, got $?"
+```
+
+- [ ] Each attempt in `attempts[]` really ran as the identity it names. Confirm
+      with `gcloud-axi diagnose secrets --as <sa>` against a service account you
+      know is denied: the `ambient` row should succeed and the `sa:` row fail,
+      giving `verdict: identity-specific`.
+- [ ] The impersonated attempt does not leave a token behind:
+      `ls -d /tmp/gcloud-axi-token-* 2>/dev/null` finds nothing afterwards.
+- [ ] `diagnose jobs run my-job` exits 2 and **starts no execution** - check
+      `gcloud-axi jobs` shows no new execution.
+- [ ] `provider.source` is the real feed and `openIncidents` is plausible
+      against <https://status.cloud.google.com/>.
+- [ ] With the network blocked (`GCLOUD_AXI_STATUS_URL=http://127.0.0.1:9/x`),
+      the command still completes, reports the feed as unreachable, and still
+      prints a `verdict:`.
+
+### A real 5xx
+
+**This gap is now closed offline.** A real 501/`UNIMPLEMENTED` captured during
+an actual Google outage, together with the real still-open incident record that
+belonged to it, ship as the `liveoutage` scenario; the same incident with `end`
+set ships as `staleincident` so the negative case - a 5xx must not invent an
+incident - is covered too. See `tests/fixtures/liveoutage/SOURCE.md` for what is
+verbatim and what is reconstructed.
+
+Classifying those real bytes found two defects a synthetic fixture had not: a
+JSON error body writes `"code": 501` with the key quoted, which the pattern did
+not read, and the incident link was hard-coded to the Cloud status host even for
+a record from the Firebase feed.
+
+What remains manual is only the part a fixture still cannot reach - the live
+feed itself:
+
+```
+gcloud-axi diagnose --project "$PROJECT" | sed -n '/^provider:/,/^$/p'
+```
+
+- [ ] `checkedAt` is now, and the incident count matches what
+      <https://status.cloud.google.com/> shows.
+- [ ] Any incident link printed opens the incident it names.
+
+If you do catch a live 5xx, keep the output and check it classified as
+`code: PROVIDER_ERROR` with an `httpStatus` matching raw `gcloud` - and if the
+shape differs from the captured one, add it to the `liveoutage` fixtures rather
+than only to this list.
+
+Note the tool does **not** match an incident to the failing command's service:
+it reports every open incident and names the service each belongs to. Judge
+relevance yourself; the output does not claim the incident explains your
+failure, only that one is open.
 
 ## 3. The tiering layer (only if you use it)
 

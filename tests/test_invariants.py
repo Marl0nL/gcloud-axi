@@ -65,6 +65,80 @@ class NoSecretPayloadPathTest(unittest.TestCase):
             )
 
 
+class SingleChokePointTest(unittest.TestCase):
+    """Each dangerous capability lives in exactly one module, checkably.
+
+    The tool's defences are all of the form "there is only one place that can
+    do X". That is only worth anything if nothing quietly grows a second place,
+    so the count is asserted rather than trusted.
+    """
+
+    def _sources(self):
+        for path in source_files():
+            if not path.endswith(".py"):
+                continue
+            with open(path, "r") as handle:
+                yield path, handle.read()
+
+    def test_only_gcloudcmd_hands_a_credential_to_a_subprocess(self):
+        # Assembled at runtime so this test does not put the literal it is
+        # scanning for into the tree it is scanning.
+        needle = '"--access-token-file' + '=%s"'
+        allowed = {
+            os.path.abspath(os.path.join(ROOT, "src", "gcloud_axi", "gcloudcmd.py")),
+            os.path.abspath(__file__),
+        }
+        for path, body in self._sources():
+            if os.path.abspath(path) in allowed:
+                continue
+            self.assertNotIn(
+                needle, body,
+                "%s builds a credential argument of its own" % path,
+            )
+
+    def test_only_provider_opens_a_network_connection(self):
+        allowed = os.path.join(ROOT, "src", "gcloud_axi", "provider.py")
+        for path, body in self._sources():
+            if not path.startswith(os.path.join(ROOT, "src")):
+                continue
+            if os.path.abspath(path) == os.path.abspath(allowed):
+                continue
+            for module in ("urllib", "http.client", "socket", "requests"):
+                self.assertNotIn(
+                    "import " + module, body,
+                    "%s reaches the network; only provider.py may" % path,
+                )
+
+    def test_only_tiering_writes_a_credential_to_disk(self):
+        allowed = os.path.join(ROOT, "src", "gcloud_axi", "tiering.py")
+        for path, body in self._sources():
+            if not path.startswith(os.path.join(ROOT, "src")):
+                continue
+            if os.path.abspath(path) == os.path.abspath(allowed):
+                continue
+            self.assertNotIn(
+                "os.open(", body,
+                "%s writes a file directly; credential writes belong in tiering.py" % path,
+            )
+
+
+class SuiteCannotReachTheStatusFeedTest(CliTestCase):
+    """The provider lookup is the tool's only network read - pin it offline."""
+
+    def test_the_harness_points_the_status_feed_at_a_file(self):
+        run = self.assertOk(self.cli("diagnose"))
+        self.assertIn_("source: file://", run)
+
+    def test_every_scenario_resolves_to_a_readable_feed(self):
+        for scenario in ("happy", "empty", "denied", "expired", "outage",
+                         "adcfallback", "adclapsed", "bothlapsed", "identity"):
+            run = self.assertOk(self.cli("diagnose", scenario=scenario))
+            self.assertNotIn(
+                "could not reach the status feed", run.stdout,
+                "%s has no usable incidents fixture: %s" % (scenario, run.describe()),
+            )
+
+
 class TestSuiteIsOfflineTest(CliTestCase):
     def test_the_shim_is_what_gets_called(self):
         run = self.assertOk(self.cli("run", "status"))
@@ -174,7 +248,9 @@ class OutputContractTest(CliTestCase):
             self.assertIn("count: 0", run.stdout, "%s: %s" % (command, run.describe()))
 
     def test_every_result_ends_with_next_step_hints(self):
-        for command in self.LIST_COMMANDS + [[], ["overview"], ["logs", "my-service"]]:
+        for command in self.LIST_COMMANDS + [[], ["overview"], ["logs", "my-service"],
+                                             ["auth"], ["diagnose"],
+                                             ["diagnose", "run", "status"]]:
             run = self.assertOk(self.cli(*command))
             self.assertRegex(
                 run.stdout, r"help\[\d+\]:", "%s: %s" % (command, run.describe())
@@ -183,6 +259,7 @@ class OutputContractTest(CliTestCase):
     def test_unknown_flags_fail_loud_everywhere(self):
         for command in self.LIST_COMMANDS + [[], ["overview"], ["logs", "my-service"],
                                              ["jobs", "run", "my-job"], ["sql", "proxy"],
+                                             ["auth"], ["diagnose"],
                                              ["grant"], ["revoke"]]:
             run = self.cli(*(command + ["--definitely-not-a-flag"]))
             self.assertEqual(

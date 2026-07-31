@@ -16,9 +16,16 @@ inspection workflows for AI agents and automation:
 - **No interactive prompts, ever.**
 - **Contextual next-step hints** - every result ends with `help[]` command
   templates.
+- **Answers about the credentials themselves** - `auth` probes the CLI
+  credential *and* ADC separately, reads keep working on whichever is alive, and
+  `diagnose` tells you whether a failure is you, your permissions, the resource
+  or Google.
 
 It is a single-file-per-module Python 3 package with **no dependencies beyond
-the standard library**, and it shells out only to `gcloud` itself.
+the standard library**, and it shells out only to `gcloud` itself. Its one
+network read of its own - [pulling Google's incident feed when a call fails
+server-side](#a-5xx-points-at-the-provider-without-being-asked) - can be
+switched off with `GCLOUD_AXI_PROVIDER_STATUS=off`.
 
 Built to the [axi conventions](https://axi.md/).
 
@@ -58,6 +65,13 @@ credential:
   scopedConfigDir: null
   tier: (not a tiered credential)
 
+adc:
+  declaredType: authorized_user
+  identity: (an authorized_user ADC file records no account name)
+  wouldReadFrom: /home/you/.config/gcloud/application_default_credentials.json
+  state: not probed here - run `gcloud-axi auth` to prove liveness
+  usedBy: client libraries, Terraform/OpenTofu providers, and direct REST calls
+
 context:
   project: my-project
   projectSource: gcloud configuration
@@ -68,8 +82,9 @@ context:
 
 health: 1/2 Cloud Run services READY; not ready: worker-service
 
-help[4]:
+help[5]:
   Run `gcloud-axi overview` for the whole-project picture
+  Run `gcloud-axi auth` to prove which of the two credentials is actually live
   Run `gcloud-axi run status` for Cloud Run service detail
   Run `gcloud-axi grant --help` if you want the optional credential-tiering layer
   Run `gcloud-axi --help` for the full command list
@@ -82,6 +97,8 @@ Running with no arguments prints live state, not help text.
 | Command | Answers |
 | --- | --- |
 | `gcloud-axi` | Which credential, which project, is anything on fire |
+| `auth` | **Both** credentials probed: which is live, which is lapsed, what fixes each |
+| `diagnose [<read command>]` | Is this failure you, your permissions, the resource, or Google? |
 | `overview` | Services, jobs, databases and error volume in one call |
 | `run status [service]` | Traffic split, serving revision, image digest, env/secret **names** |
 | `run revisions [service]` | Revision history with traffic share and status |
@@ -186,6 +203,201 @@ help[1]:
 exit=2
 ```
 
+## When a credential lapses
+
+A machine authenticated to Google Cloud holds **two** credentials with **two
+independent refresh states**:
+
+| | Established by | Used by |
+| --- | --- | --- |
+| **CLI credential** | `gcloud auth login` | `gcloud`, and therefore every `gcloud-axi` read |
+| **ADC** | `gcloud auth application-default login` | client libraries, Terraform/OpenTofu, direct REST calls |
+
+They lapse independently, and restoring one does not restore the other. The
+usual failure is a half-restored machine that reports itself healthy because
+whoever looked only looked at one half - `gcloud auth list` says fine while
+every `tofu plan` fails, or the reverse.
+
+### `auth` - which half is actually live
+
+```
+$ gcloud-axi auth
+credentials:
+  cli: lapsed
+  adc: live
+  bothLive: false
+  inStep: false
+  summary: ADC is live but the CLI credential is lapsed - `gcloud` will fail while client libraries and REST calls keep working
+  probed: true
+
+cli:
+  state: lapsed
+  identity: you@example.com
+  type: user
+  usedBy: `gcloud` itself, and therefore every gcloud-axi read verb
+  detail: credential rejected by Google - it is expired or no longer valid
+  fix: gcloud auth login
+
+adc:
+  state: live
+  identity: (an authorized_user ADC file records no account name)
+  type: authorized_user
+  source: /home/you/.config/gcloud/application_default_credentials.json
+  usedBy: client libraries, Terraform/OpenTofu providers, and direct REST calls
+  fix: (none needed)
+
+note: the two credentials refresh independently - restoring one leaves the other exactly as it was
+help[3]:
+  Run `gcloud auth login` to restore the CLI credential
+  Run `gcloud-axi diagnose <command>` to test a failing call as another identity
+  Run `gcloud-axi` for ambient project and service state
+```
+
+Liveness is **proved by minting a token**, not inferred from a config file: an
+account stays listed as active long after its refresh token stopped working.
+Both minted tokens are discarded immediately; no token value is printed. Pass
+`--no-probe` for identity and source alone, minting nothing - the summary then
+says liveness was not probed rather than claiming a lapse.
+
+A probe that does not complete reports `unverifiable (provider-side failure)`,
+not `lapsed`: a credential whose liveness could not be proved is not one proved
+dead, and the fix offered points at retrying and at `gcloud-axi diagnose`, never
+at a login command.
+
+That is an **allow-list**, not a list of provider errors: only a positively
+identified rejection (`CREDENTIAL_EXPIRED`) is treated as proof a credential is
+dead. A 5xx, a 429, a transport failure, an empty response, a missing `gcloud`,
+or a failure this tool has never seen all read as unverifiable. Enumerating
+provider-side codes instead would pass today's 501 and blame the operator for
+tomorrow's 429 - and being confidently wrong in that direction is what wastes
+the most time during an incident.
+
+The command exits 0 whether or not a credential is lapsed - it reports state,
+and the exit code describes the invocation. Test the `credentials.cli` and
+`credentials.adc` fields.
+
+### Reads keep working on whichever credential is alive
+
+When the CLI credential is lapsed and ADC is not, a **read** verb re-issues
+itself under ADC rather than failing with it, and says so:
+
+```
+$ gcloud-axi run status
+project: my-project
+count: 1
+
+service:
+  name: my-service
+  status: READY
+  ...
+
+credentialFallback:
+  used: adc
+  reason: the gcloud CLI credential is lapsed; this read is a fallback
+  scope: read-only calls only - nothing is mutated under a fallback credential
+  caution: ADC may hold different permissions than the CLI credential, so results can differ
+  fix: gcloud auth login
+help[3]:
+  ...
+```
+
+The restriction is enforced in the one module that spawns processes, against an
+**allow-list** of read verbs (`list`, `describe`, `read`, `get-iam-policy`,
+`get-value`) plus a mutating-verb deny-list - so a call added later is excluded
+by default rather than by anyone remembering to exclude it. A non-read vector
+that would run under a substituted credential is refused outright
+(`REFUSED_UNDER_SUBSTITUTED_CREDENTIAL`), before any process is spawned - never
+quietly run as the ambient identity instead. `jobs run` never
+falls back. Neither does anything under `auth` or `config`, where asking the
+question as a borrowed identity would answer a different question.
+
+The ADC token reaches gcloud as a path to a `0600` file in a `0700` directory,
+removed when the process exits - never as an argument (visible in every process
+listing) and never as an environment variable (visible in `/proc/<pid>/environ`
+for the whole subprocess tree).
+
+### `diagnose` - is it me, or is it them?
+
+```
+$ gcloud-axi diagnose run status
+target: run status
+
+credentials:
+  cli: live
+  adc: live
+  bothLive: true
+  inStep: true
+  summary: both credentials are live
+
+attempts[2]{identity,outcome,code,detail}:
+  ambient,failed,PROVIDER_ERROR,"`gcloud run services list` failed server-side - this is the provider's end, not your request"
+  adc,failed,PROVIDER_ERROR,"`gcloud run services list` failed server-side - this is the provider's end, not your request"
+
+provider:
+  source: https://status.cloud.google.com/incidents.json
+  checkedAt: 2026-07-31T09:41:22Z
+  openIncidents: 1
+  incidents[1]{severity,service,began,summary}:
+    high,Cloud Run,2026-07-31T09:12:00+00:00,Global: elevated error rates affecting multiple Google Cloud products.
+
+verdict: provider-outage
+reasoning: every identity got the same server-side failure and Google has 1 open incident(s) - this is the provider, not you
+
+help[2]:
+  Read the open incident at https://status.cloud.google.com/incidents/...
+  Retry once the incident is marked resolved
+```
+
+It walks one ladder, in the order that makes the wrong answer expensive to
+reach:
+
+1. **Credential liveness** - both halves, probed.
+2. **The same question as another identity** - the call is re-issued as ADC, and
+   as an impersonated service account with `--as <sa>` or `--tier <name>`. A
+   failure that survives every identity is *not about identity*, and that is a
+   proof rather than an opinion.
+3. **The provider's own status** - one unauthenticated GET against Google's
+   public incident feed.
+
+Then a `verdict:` - one of `provider-outage`, `identity-specific`,
+`denied-for-every-identity-tried`, `all-credentials-lapsed`, `resource-missing`,
+`not-reproducible`, `inconclusive` and a few more - so the reader is not left to
+assemble the conclusion they already believed.
+
+With no command it reports credentials and provider status alone. Only read
+commands may be diagnosed: `jobs run`, `grant` and `revoke` are refused by name,
+because a diagnostic must not change what it is diagnosing.
+
+### A 5xx points at the provider without being asked
+
+Server-side failures classify as `PROVIDER_ERROR` and pull Google's open
+incidents into the *same* output as the failure:
+
+```
+$ gcloud-axi run status
+error: `gcloud run services list` failed server-side - this is the provider's end, not your request
+code: PROVIDER_ERROR
+detail: ERROR: (gcloud.run.services.list) HTTPError 501: The service is currently unavailable.
+httpStatus: 501
+retryable: true
+providerOpenIncidents: 1
+providerIncident: Cloud Run: Global: elevated error rates affecting multiple Google Cloud products. (high)
+help[4]:
+  Google has 1 open incident(s) - treat this failure as the provider's until that is ruled out
+  Read the open incident at https://status.cloud.google.com/incidents/...
+  Run `gcloud-axi diagnose <command>` to re-issue this as another identity
+  Do not conclude a credential problem from a 5xx until the provider is ruled out
+```
+
+When Google publishes nothing, that is stated too - `providerOpenIncidents: 0`
+with the reason a zero matters - because "no open incident" is the answer that
+makes looking at your own request the right next step.
+
+This is the tool's **only** network read, it is bounded by a short timeout, and
+an unreachable feed becomes a field rather than losing the error you were
+actually asking about. Set `GCLOUD_AXI_PROVIDER_STATUS=off` to switch it off
+entirely.
+
 ## Configuration
 
 Configuration is **optional**. Without it, `gcloud-axi` uses your ambient
@@ -206,6 +418,17 @@ There is no built-in default. If all three come up empty, the command fails
 with a structured error instead of guessing. Region resolution has the same
 shape (`--region`, then `REGION`, then gcloud's `run/region`); with none set,
 region-scoped listings span every region.
+
+**Environment variables**, all optional:
+
+| Variable | Effect |
+| --- | --- |
+| `GCLOUD_AXI_CONFIG` | Path to the config file |
+| `GCLOUD_AXI_LEDGER` | Path to the issuance ledger |
+| `GCLOUD_AXI_GCLOUD` | Path to the `gcloud` binary to invoke |
+| `GCLOUD_AXI_PROVIDER_STATUS` | `off` disables the incident-feed lookup - the tool then makes no network call of its own |
+| `GCLOUD_AXI_STATUS_URL` | Override the incident feed (the test suite points this at a fixture) |
+| `GCLOUD_AXI_STATUS_TIMEOUT` | Seconds to wait for the feed; default 4 |
 
 ## Optional: credential tiers via impersonation
 
@@ -375,7 +598,14 @@ the token-creator binding - along with who is currently affected. It runs
   history and CI logs are all durable copies; a tool that can print a payload
   will eventually print one somewhere nobody meant to write it.
 - **It never prints a token value** - not to the terminal, a log, or the
-  ledger.
+  ledger. That holds for the credential verbs too: `auth` mints tokens to prove
+  liveness and discards them, and `diagnose` hands an impersonated token to
+  gcloud as a `0600` file path, never as a value. Both report **liveness and
+  identity, never material**.
+- **It never falls back on a mutating call.** The ADC fallback and `diagnose`'s
+  cross-identity retry are read-only, enforced by an allow-list at the process
+  boundary rather than by convention: a substituted credential on anything but
+  a recognised read vector is refused before a process exists to run it.
 - **It never prompts.** Every command is scriptable; `--quiet` is passed to
   gcloud on every call.
 - **It does not cover gcloud's surface.** It covers the dozen questions that
@@ -391,9 +621,12 @@ the token-creator binding - along with who is currently affected. It runs
 
 The suite is fully offline. A fake `gcloud` shim (`tests/shim/gcloud`) is
 placed first on `PATH` and replays recorded JSON fixtures, including failure
-shapes - permission denied, expired credential, disabled API, empty project. No
-test can reach a real `gcloud`, a real credential, or the network, and the shim
-exits loudly on any call it has no fixture for rather than returning silence.
+shapes - permission denied, expired credential, disabled API, empty project,
+provider outage, and each of the four credential states (both live, either half
+lapsed, both lapsed). No test can reach a real `gcloud`, a real credential, or
+the network: the shim exits loudly on any call it has no fixture for rather than
+returning silence, and the incident feed is pointed at a `file://` fixture in
+every scenario.
 
 [`VERIFY.md`](VERIFY.md) lists the live smoke checks a maintainer runs by hand
 against real infrastructure before a release; those are deliberately not part
