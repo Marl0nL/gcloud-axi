@@ -556,5 +556,212 @@ class ServerErrorClassificationTest(unittest.TestCase):
         self.assertIn(("httpStatus", "503"), error.fields)
 
 
+class ProbeNeverBlamesTheOperatorTest(unittest.TestCase):
+    """The rule, not the instance.
+
+    A probe that could not complete must never be reported as a dead operator
+    credential, and must never answer with "re-authenticate". Pinning the one
+    status code we happened to capture would pass the whole of the next outage
+    while the tool repeats today's wrong answer - so this parametrises over the
+    shapes a failure actually arrives in, including one nobody here has seen.
+
+    The mirror assertion matters as much: a genuine rejection must still report
+    LAPSED *with* the login command, or "never say lapsed" becomes a passing
+    test and a broken tool.
+    """
+
+    # Real gcloud stderr, not codes: the classifier is part of what is measured.
+    PROBE_DID_NOT_COMPLETE = [
+        ("a 500", "ERROR: (gcloud.auth.print-access-token) HTTPError 500: Internal error"),
+        # The live capture, 2026-07-31: firebasehosting during a real outage.
+        ("the captured 501",
+         "ERROR: (gcloud.auth.print-access-token) HTTPError 501: Operation is not "
+         "implemented, or supported, or enabled."),
+        ("a 502", "ERROR: (gcloud.auth.print-access-token) HTTPError 502: Bad Gateway"),
+        ("a 503", "ERROR: (gcloud.auth.print-access-token) HTTPError 503: Service Unavailable"),
+        ("a 504", "ERROR: (gcloud.auth.print-access-token) HTTPError 504: Gateway Timeout"),
+        ("a gRPC UNAVAILABLE",
+         "ERROR: UNAVAILABLE: The service is currently unavailable."),
+        # A rate limit is not a credential problem, and is not a 5xx either.
+        ("a 429", "ERROR: (gcloud.auth.print-access-token) HTTPError 429: Too Many Requests"),
+        # A transport failure never reached an identity check at all.
+        ("a transport failure",
+         "ERROR: (gcloud.auth.print-access-token) Unable to connect: "
+         "[Errno -3] Temporary failure in name resolution"),
+        ("an unparseable answer", "ERROR: something gcloud printed that we cannot parse"),
+        # The point of the exercise: a shape this file has never met.
+        ("an unseen status",
+         "ERROR: (gcloud.auth.print-access-token) HTTPError 599: a status nobody here "
+         "has seen before"),
+        ("an unseen gRPC name", "ERROR: TOTALLY_NEW_CONDITION: something new broke"),
+    ]
+
+    PROVES_THE_CREDENTIAL_IS_DEAD = [
+        ("an expired grant",
+         "ERROR: (gcloud.auth.print-access-token) There was a problem refreshing your "
+         "current auth tokens: invalid_grant: Token has been expired or revoked.\n"
+         "Please run:\n  $ gcloud auth login"),
+        ("a reauth demand",
+         "ERROR: (gcloud.auth.print-access-token) reauthentication required"),
+        ("a 401", "ERROR: (gcloud.auth.print-access-token) 401 UNAUTHENTICATED"),
+    ]
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(ROOT, "src"))
+        from gcloud_axi import credentials, gcloudcmd
+
+        self.credentials = credentials
+        self.gcloudcmd = gcloudcmd
+        # classify() annotates a PROVIDER_ERROR from the incident feed; this
+        # class runs in-process, so keep it off the network.
+        os.environ["GCLOUD_AXI_PROVIDER_STATUS"] = "off"
+        self.addCleanup(os.environ.pop, "GCLOUD_AXI_PROVIDER_STATUS", None)
+
+    def _probe(self, stderr):
+        """Run the real classifier over ``stderr``, then the real state mapping."""
+        real_invoke = self.gcloudcmd.invoke
+        classify = self.gcloudcmd.classify
+
+        def fake_invoke(args, **_kwargs):
+            return self.gcloudcmd.Result(False, error=classify(args, stderr, 1))
+
+        self.gcloudcmd.invoke = fake_invoke
+        self.addCleanup(setattr, self.gcloudcmd, "invoke", real_invoke)
+        return self.credentials._mint_state(["auth", "print-access-token"])
+
+    def test_a_probe_that_did_not_complete_is_never_reported_as_a_lapse(self):
+        for label, stderr in self.PROBE_DID_NOT_COMPLETE:
+            state, detail, _code = self._probe(stderr)
+            self.assertEqual(
+                self.credentials.UNVERIFIABLE, state,
+                "%s was reported as %r - a probe that did not complete is not "
+                "proof the operator's credential is dead" % (label, state),
+            )
+            self.assertTrue(detail, label)
+
+    def test_a_probe_that_did_not_complete_never_answers_re_authenticate(self):
+        for label, stderr in self.PROBE_DID_NOT_COMPLETE:
+            state, _detail, _code = self._probe(stderr)
+            for kind, login in (("cli", self.credentials.CLI_FIX),
+                                ("adc", self.credentials.ADC_FIX)):
+                fix = self.credentials._fix_for(state, login)
+                self.assertNotIn(
+                    "login", (fix or ""),
+                    "%s offered %r as the %s fix - re-authenticating cannot fix a "
+                    "probe that never completed" % (label, fix, kind),
+                )
+
+    def test_an_empty_response_is_not_proof_of_a_lapse(self):
+        real_invoke = self.gcloudcmd.invoke
+
+        def fake_invoke(_args, **_kwargs):
+            return self.gcloudcmd.Result(True, data="   \n")
+
+        self.gcloudcmd.invoke = fake_invoke
+        self.addCleanup(setattr, self.gcloudcmd, "invoke", real_invoke)
+        state, _detail, _code = self.credentials._mint_state(["auth", "print-access-token"])
+        self.assertEqual(self.credentials.UNVERIFIABLE, state)
+
+    def test_a_real_rejection_is_still_reported_as_a_lapse(self):
+        """The mirror: the fix must not over-apply into never reporting a lapse."""
+        for label, stderr in self.PROVES_THE_CREDENTIAL_IS_DEAD:
+            state, _detail, _code = self._probe(stderr)
+            self.assertEqual(
+                self.credentials.LAPSED, state,
+                "%s was reported as %r - a rejected credential must still read as "
+                "lapsed" % (label, state),
+            )
+
+    def test_a_real_rejection_still_offers_the_matching_login_command(self):
+        for label, stderr in self.PROVES_THE_CREDENTIAL_IS_DEAD:
+            state, _detail, _code = self._probe(stderr)
+            self.assertEqual(
+                self.credentials.CLI_FIX,
+                self.credentials._fix_for(state, self.credentials.CLI_FIX), label,
+            )
+            self.assertEqual(
+                self.credentials.ADC_FIX,
+                self.credentials._fix_for(state, self.credentials.ADC_FIX), label,
+            )
+
+    def test_only_a_rejection_is_treated_as_proof(self):
+        """The allow-list is the guarantee; assert it rather than infer it."""
+        self.assertEqual(frozenset(["CREDENTIAL_EXPIRED"]), self.credentials.PROVES_LAPSE)
+
+
+class LiveOutagePairingTest(CliTestCase):
+    """Built from a real 501 and the real still-open incident it belonged to.
+
+    See tests/fixtures/liveoutage/SOURCE.md for what is verbatim and what is
+    reconstructed.
+    """
+
+    def test_the_captured_api_body_classifies_as_the_providers_failure(self):
+        """The real bytes, through the real classifier."""
+        sys.path.insert(0, os.path.join(ROOT, "src"))
+        from gcloud_axi import gcloudcmd
+
+        os.environ["GCLOUD_AXI_PROVIDER_STATUS"] = "off"
+        self.addCleanup(os.environ.pop, "GCLOUD_AXI_PROVIDER_STATUS", None)
+        with open(os.path.join(ROOT, "tests", "fixtures", "liveoutage",
+                               "api-501-response.json")) as handle:
+            body = handle.read()
+        error = gcloudcmd.classify(["run", "services", "list"], body, 1)
+        self.assertEqual("PROVIDER_ERROR", error.code, body)
+        self.assertIn(("httpStatus", "501"), error.fields)
+
+    def test_the_open_incident_arrives_in_the_same_output_as_the_failure(self):
+        run = self.assertExit(self.cli("run", "status", scenario="liveoutage"), 1)
+        self.assertErrorShape(run, "PROVIDER_ERROR")
+        self.assertIn_("httpStatus: 501", run)
+        self.assertIn_("providerOpenIncidents: 1", run)
+        self.assertIn_("Hosting", run)
+
+    def test_the_failure_is_not_blamed_on_the_operators_identity(self):
+        run = self.assertExit(self.cli("run", "status", scenario="liveoutage"), 1)
+        for wrong in ("CREDENTIAL_EXPIRED", "PERMISSION_DENIED", "gcloud auth login"):
+            self.assertNotIn_(wrong, run)
+
+    def test_diagnose_reaches_the_provider_verdict_on_the_real_pairing(self):
+        run = self.assertOk(self.cli("diagnose", "run", "status", scenario="liveoutage"))
+        self.assertIn_("verdict: provider-outage", run)
+        # The verdict and everything after it must not send the reader at their
+        # own identity - that is the misdiagnosis this pairing was captured for.
+        tail = run.stdout.split("verdict:", 1)[1]
+        for wrong in ("credential", "auth login", "re-authenticat"):
+            self.assertNotIn(wrong, tail, run.describe())
+
+    def test_an_incident_link_follows_the_feed_it_came_from(self):
+        """Cloud and Firebase publish separate feeds on separate hosts."""
+        sys.path.insert(0, os.path.join(ROOT, "src"))
+        from gcloud_axi import provider
+
+        record = [{"uri": "incidents/abc123"}]
+        for url, expected in (
+            ("https://status.firebase.google.com/incidents.json",
+             "https://status.firebase.google.com/incidents/abc123"),
+            ("https://status.cloud.google.com/incidents.json",
+             "https://status.cloud.google.com/incidents/abc123"),
+        ):
+            os.environ["GCLOUD_AXI_STATUS_URL"] = url
+            self.addCleanup(os.environ.pop, "GCLOUD_AXI_STATUS_URL", None)
+            self.assertEqual([expected], provider.links(record), url)
+
+    def test_a_closed_incident_is_not_reported_as_open(self):
+        """The negative case: the same 5xx and the same incident, now resolved."""
+        run = self.assertExit(self.cli("run", "status", scenario="staleincident"), 1)
+        self.assertErrorShape(run, "PROVIDER_ERROR")
+        self.assertIn_("providerOpenIncidents: 0", run)
+        self.assertNotIn_("Firebase Hosting custom domains API returning 501", run)
+
+    def test_a_5xx_with_no_open_incident_does_not_invent_one(self):
+        run = self.assertOk(
+            self.cli("diagnose", "run", "status", scenario="staleincident")
+        )
+        self.assertIn_("openIncidents: 0", run)
+        self.assertIn_("verdict: provider-side-no-published-incident", run)
+        self.assertNotIn_("Firebase Hosting custom domains API returning 501", run)
+
+
 if __name__ == "__main__":
     unittest.main()

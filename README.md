@@ -256,10 +256,18 @@ Both minted tokens are discarded immediately; no token value is printed. Pass
 `--no-probe` for identity and source alone, minting nothing - the summary then
 says liveness was not probed rather than claiming a lapse.
 
-A probe the provider itself fails - a 5xx from the token endpoint - reports
-`unverifiable (provider-side failure)`, not `lapsed`: a credential whose
-liveness could not be proved is not one proved dead, and the fix offered points
-at retrying and at `gcloud-axi diagnose`, never at a login command.
+A probe that does not complete reports `unverifiable (provider-side failure)`,
+not `lapsed`: a credential whose liveness could not be proved is not one proved
+dead, and the fix offered points at retrying and at `gcloud-axi diagnose`, never
+at a login command.
+
+That is an **allow-list**, not a list of provider errors: only a positively
+identified rejection (`CREDENTIAL_EXPIRED`) is treated as proof a credential is
+dead. A 5xx, a 429, a transport failure, an empty response, a missing `gcloud`,
+or a failure this tool has never seen all read as unverifiable. Enumerating
+provider-side codes instead would pass today's 501 and blame the operator for
+tomorrow's 429 - and being confidently wrong in that direction is what wastes
+the most time during an incident.
 
 The command exits 0 whether or not a credential is lapsed - it reports state,
 and the exit code describes the invocation. Test the `credentials.cli` and

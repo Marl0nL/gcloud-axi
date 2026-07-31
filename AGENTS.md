@@ -91,7 +91,10 @@ Adding coverage for a new gcloud call means adding a fixture, not relaxing this:
 - `<key>.err` plus optional `<key>.exit` simulate failures;
 - scenarios: `happy`, `empty`, `denied`, `expired`, `partial`, `noregion`,
   `outage` (a 5xx plus an open incident feed), `probeoutage` (the token mint
-  itself 5xxes, so liveness is unverifiable rather than lapsed), and the four
+  itself 5xxes, so liveness is unverifiable rather than lapsed), `liveoutage`
+  and `staleincident` (a REAL captured 501 with the real incident that belonged
+  to it, open and then closed - see `tests/fixtures/liveoutage/SOURCE.md` for
+  what is verbatim and what is reconstructed), and the four
   credential states -
   `adcfallback` (CLI lapsed, ADC live, read succeeds under ADC), `adclapsed`
   (the mirror image), `bothlapsed`, `identity` (ambient denied, another identity
@@ -155,6 +158,18 @@ a call with. All three go through `tiering.write_scratch_token` /
 further fixture tokens. A token reaches gcloud as `--access-token-file=<path>`
 and never as an argument value (visible in any process listing) or an
 environment variable (visible in `/proc/<pid>/environ` for the whole subtree).
+
+**Only proof counts as proof.** `credentials.PROVES_LAPSE` is an allow-list of
+the outcomes that establish a credential is dead - today just
+`CREDENTIAL_EXPIRED`. Everything else (a 5xx, a 429, a transport failure, an
+empty response, an unrecognised error) reports `UNVERIFIABLE` and never offers a
+login command. Do not invert this into a list of provider-side codes to exclude:
+the next outage arrives with a code this file has never met, and the default
+must not be to blame the operator's identity for it. The rule is pinned by
+`tests/test_credentials.py::ProbeNeverBlamesTheOperatorTest`, which parametrises
+over failure shapes including unseen ones and carries the mirror assertion that
+a genuine rejection still reports `LAPSED` with its login fix - without that
+half, "never say lapsed" is a passing test and a broken tool.
 
 **No fallback on a mutating call.** `gcloudcmd.is_read_only` is the gate for
 both the automatic ADC fallback and `diagnose`'s cross-identity retry. It is an

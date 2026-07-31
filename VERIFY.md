@@ -172,22 +172,38 @@ gcloud-axi diagnose jobs run my-job ; echo "expect 2, got $?"
 
 ### A real 5xx
 
-You cannot summon one on demand. When one does happen, keep the output and
-check:
+**This gap is now closed offline.** A real 501/`UNIMPLEMENTED` captured during
+an actual Google outage, together with the real still-open incident record that
+belonged to it, ship as the `liveoutage` scenario; the same incident with `end`
+set ships as `staleincident` so the negative case - a 5xx must not invent an
+incident - is covered too. See `tests/fixtures/liveoutage/SOURCE.md` for what is
+verbatim and what is reconstructed.
 
-- [ ] It classified as `code: PROVIDER_ERROR`, not as a credential or
-      permission problem.
-- [ ] `httpStatus` matches what raw `gcloud` reported.
-- [ ] `providerOpenIncidents` reflects what status.cloud.google.com showed at
-      that moment.
+Classifying those real bytes found two defects a synthetic fixture had not: a
+JSON error body writes `"code": 501` with the key quoted, which the pattern did
+not read, and the incident link was hard-coded to the Cloud status host even for
+a record from the Firebase feed.
 
-Failing a real one, at least confirm the feed reader works against live data:
+What remains manual is only the part a fixture still cannot reach - the live
+feed itself:
 
 ```
 gcloud-axi diagnose --project "$PROJECT" | sed -n '/^provider:/,/^$/p'
 ```
 
-- [ ] `checkedAt` is now, and the incident count matches the public page.
+- [ ] `checkedAt` is now, and the incident count matches what
+      <https://status.cloud.google.com/> shows.
+- [ ] Any incident link printed opens the incident it names.
+
+If you do catch a live 5xx, keep the output and check it classified as
+`code: PROVIDER_ERROR` with an `httpStatus` matching raw `gcloud` - and if the
+shape differs from the captured one, add it to the `liveoutage` fixtures rather
+than only to this list.
+
+Note the tool does **not** match an incident to the failing command's service:
+it reports every open incident and names the service each belongs to. Judge
+relevance yourself; the output does not claim the incident explains your
+failure, only that one is open.
 
 ## 3. The tiering layer (only if you use it)
 

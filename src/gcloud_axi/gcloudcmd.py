@@ -367,12 +367,17 @@ _DISABLED_API = re.compile(
 # status code needs context around it, so that a resource whose name happens to
 # contain "503" is not read as an outage.
 _SERVER = re.compile(
-    r"(?:HTTPError\s*|ResponseError:?\s*|status(?:_code)?\s*[:=]\s*\[?|code\s*[:=]\s*\[?"
-    r"|error\s*[:=]\s*\[?|\breturned\s+)\s*\[?(5\d\d)\b"
+    # The optional quotes matter: gcloud surfaces a raw API error body, and a
+    # real one writes `"code": 501` with the key quoted. A pattern that only
+    # accepted the bare `code: 501` form classified the failure correctly and
+    # then reported "(5xx, code not stated)" - found by classifying the bytes of
+    # an actual outage rather than a hand-written approximation of one.
+    r"(?:\bHTTPError|\bResponseError|\bstatus(?:_code)?|\bcode|\berror|\breturned)"
+    r"\"?\s*[:=]?\s*\[?\"?(5\d\d)\b"
     # The gRPC status names stay case-SENSITIVE. Matched case-insensitively,
     # "internal" and "unavailable" are ordinary English and turn up inside
     # permission and not-found messages, which would then be blamed on Google.
-    r"|(?-i:\b(?:INTERNAL|UNAVAILABLE|DEADLINE_EXCEEDED)\b)"
+    r"|(?-i:\b(?:INTERNAL|UNAVAILABLE|DEADLINE_EXCEEDED|UNIMPLEMENTED)\b)"
     r"|\b(?:Internal error|Backend Error|Service Unavailable|Not Implemented"
     r"|Bad Gateway|Gateway Timeout)\b",
     re.I,
@@ -397,6 +402,10 @@ def _first_useful_line(stderr):
         if not line:
             continue
         if line.startswith("WARNING") or line.startswith("Updates are available"):
+            continue
+        # A bare `{` is the first line of every JSON error body gcloud passes
+        # through, and says nothing. Skip lines carrying no word characters.
+        if not any(ch.isalnum() for ch in line):
             continue
         return line
     return stderr.strip().splitlines()[0] if stderr.strip() else "gcloud failed"

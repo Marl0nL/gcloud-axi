@@ -113,12 +113,30 @@ def rows(incidents):
     return result
 
 
+def incident_base():
+    """Where to resolve an incident's relative ``uri`` against.
+
+    Google publishes several of these feeds - Cloud and Firebase are separate
+    hosts with separate incident sets - so the link has to follow whichever feed
+    the record actually came from. Hard-coding the Cloud host sends the reader
+    to a page that does not hold the incident they were just told about.
+    """
+    url = feed_url()
+    for scheme in ("https://", "http://"):
+        if url.startswith(scheme):
+            host = url[len(scheme):].split("/", 1)[0]
+            return "%s%s/" % (scheme, host) if host else INCIDENT_BASE
+    # A `file://` feed (the offline suite) has no site to link to.
+    return INCIDENT_BASE
+
+
 def links(incidents):
+    base = incident_base()
     out = []
     for incident in incidents:
         uri = incident.get("uri")
         if uri:
-            out.append(INCIDENT_BASE + str(uri).lstrip("/"))
+            out.append(base + str(uri).lstrip("/"))
     return out
 
 

@@ -1,0 +1,24 @@
+[
+ {
+  "begin": "2026-07-30T21:00:00+00:00",
+  "created": "2026-07-31T03:38:41+00:00",
+  "currently_affected_locations": null,
+  "end": "2026-07-31T11:02:00+00:00",
+  "external_desc": "Firebase Hosting custom domains API returning 501 errors",
+  "id": "e1VziVqDLmv9KFGEejjR",
+  "most_recent_update": {
+   "created": "2026-07-31T05:14:01+00:00",
+   "modified": "2026-07-31T05:19:57+00:00",
+   "status": "SERVICE_DISRUPTION",
+   "text": "The fix is being rolled out. The ETA for complete resolution is July 31 at ~11:00 UTC, though some users may have restored functionality before then.",
+   "when": "2026-07-31T05:14:01+00:00"
+  },
+  "number": "1363377040849297041",
+  "previously_affected_locations": null,
+  "service_key": "hhAxKbKdeaqncSsxMwEx",
+  "service_name": "Hosting",
+  "severity": "medium",
+  "status_impact": "SERVICE_DISRUPTION",
+  "uri": "incidents/e1VziVqDLmv9KFGEejjR"
+ }
+]

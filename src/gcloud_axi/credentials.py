@@ -56,8 +56,24 @@ UNVERIFIABLE = "unverifiable (provider-side failure)"
 
 UNVERIFIABLE_FIX = (
     "retry shortly, or run `gcloud-axi diagnose` for provider status - "
-    "re-authenticating will not fix a provider-side failure"
+    "re-authenticating will not fix a probe that never completed"
 )
+
+# The only outcomes that PROVE a credential is dead. Everything else - a
+# provider 5xx, a rate limit, a transport timeout, an empty response, a missing
+# gcloud, a failure nobody here has seen yet - proves only that the probe did
+# not complete.
+#
+# An allow-list, for the same reason `gcloudcmd.READ_ONLY_VERBS` is one: the
+# next outage arrives with a code this file has never met, and the default must
+# not be to blame the operator's identity for it. Enumerating provider-side
+# codes instead would pass today's 501 and fail tomorrow's 429.
+PROVES_LAPSE = frozenset(["CREDENTIAL_EXPIRED"])
+
+# ...and, for ADC only, the outcome that proves it was never configured here.
+# gcloud says "Your default credentials were not found", which classifies as a
+# missing resource rather than a rejected one.
+PROVES_ABSENCE = frozenset(["NOT_FOUND"])
 
 
 class Probe(object):
@@ -211,11 +227,13 @@ def probe_adc(probe=True):
     state, detail, code = _mint_state(
         ["auth", "application-default", "print-access-token"]
     )
-    if state not in (LIVE, UNVERIFIABLE) and not fields and code != "CREDENTIAL_EXPIRED":
-        # Nothing on disk, and the refusal was not "this credential is stale":
-        # ADC was never set up here. That is a different problem from an ADC
-        # that has gone stale, and it takes the operator to the same command by
-        # a different route - so it is worth naming separately.
+    if state != LIVE and not fields and code in PROVES_ABSENCE:
+        # Nothing on disk, and gcloud said the credentials were not found
+        # rather than rejected: ADC was never set up here. That is a different
+        # problem from an ADC that has gone stale, and it takes the operator to
+        # the same command by a different route - so it is worth naming
+        # separately. Anything short of that positive evidence stays
+        # unverifiable rather than being guessed at.
         return Probe(
             "adc", ABSENT, identity, type_, source,
             detail=detail or note, fix=ADC_FIX, used_by=ADC_USED_BY,
@@ -242,15 +260,25 @@ def _mint_state(args):
         # with this frame.
         if (result.data or "").strip():
             return LIVE, None, None
-        return LAPSED, "the token mint returned nothing", "MINT_EMPTY"
+        # An empty response is not a rejection. It says the endpoint answered
+        # with nothing, which proves nothing about the credential.
+        return (
+            UNVERIFIABLE,
+            "the token mint returned an empty response",
+            "MINT_EMPTY",
+        )
     code = getattr(result.error, "code", None)
     message = getattr(result.error, "message", "the token mint failed")
-    # A 5xx from the mint is the provider failing to answer, not the credential
-    # failing to work - reporting "lapsed" here would blame the operator's
-    # identity for a Google outage.
-    if code == "PROVIDER_ERROR":
-        return UNVERIFIABLE, message, code
-    return LAPSED, message, code
+    if code in PROVES_LAPSE:
+        return LAPSED, message, code
+    # Not proof of death. Say which failure stood in the way, so the operator
+    # can see it was the probe that failed rather than their credential.
+    return (
+        UNVERIFIABLE,
+        "%s (probe failed with %s, which is not proof the credential is dead)"
+        % (message, code or "an unclassified error"),
+        code,
+    )
 
 
 def _fix_for(state, login_fix):
