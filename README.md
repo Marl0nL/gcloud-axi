@@ -253,7 +253,13 @@ help[3]:
 Liveness is **proved by minting a token**, not inferred from a config file: an
 account stays listed as active long after its refresh token stopped working.
 Both minted tokens are discarded immediately; no token value is printed. Pass
-`--no-probe` for identity and source alone, minting nothing.
+`--no-probe` for identity and source alone, minting nothing - the summary then
+says liveness was not probed rather than claiming a lapse.
+
+A probe the provider itself fails - a 5xx from the token endpoint - reports
+`unverifiable (provider-side failure)`, not `lapsed`: a credential whose
+liveness could not be proved is not one proved dead, and the fix offered points
+at retrying and at `gcloud-axi diagnose`, never at a login command.
 
 The command exits 0 whether or not a credential is lapsed - it reports state,
 and the exit code describes the invocation. Test the `credentials.cli` and

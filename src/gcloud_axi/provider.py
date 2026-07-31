@@ -50,8 +50,21 @@ def timeout():
     return value if value > 0 else DEFAULT_TIMEOUT
 
 
+# One answer per (setting, url) for the life of the process: a single-shot CLI
+# asking the same feed twice in one invocation would pay a second bounded
+# timeout for the same bytes.
+_fetch_memo = {}
+
+
 def fetch():
     """Return ``(incidents, error)``. Exactly one of the two is meaningful."""
+    key = (enabled(), feed_url())
+    if key not in _fetch_memo:
+        _fetch_memo[key] = _fetch()
+    return _fetch_memo[key]
+
+
+def _fetch():
     if not enabled():
         return None, "skipped (GCLOUD_AXI_PROVIDER_STATUS is off)"
 

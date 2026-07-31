@@ -68,6 +68,22 @@ class DualCredentialProbeTest(CliTestCase):
             [c for c in run.calls if "print-access-token" in c], run.describe()
         )
 
+    def test_no_probe_does_not_claim_a_lapse(self):
+        """Declining to check liveness must not be reported as both halves dead."""
+        run = self.assertOk(self.cli("auth", "--no-probe"))
+        self.assertIn_("liveness was not probed (--no-probe)", run)
+        self.assertNotIn_("neither credential is live", run)
+
+    def test_a_provider_side_mint_failure_is_unverifiable_not_lapsed(self):
+        """A 5xx from the token endpoint proves nothing about the credential."""
+        run = self.assertOk(self.cli("auth", scenario="probeoutage"))
+        self.assertIn_("cli: unverifiable (provider-side failure)", run)
+        self.assertNotIn_("cli: lapsed", run)
+        # Re-authenticating is the wrong action during a provider incident, so
+        # the login command must not be offered for the unverifiable half.
+        self.assertNotIn_("gcloud auth login", run)
+        self.assertIn_("inStep: null", run)
+
     def test_identity_is_read_from_an_adc_file_without_reading_its_secrets(self):
         adc = os.path.join(self.home, "adc.json")
         with open(adc, "w") as handle:
@@ -155,6 +171,15 @@ class AdcFallbackTest(CliTestCase):
         run = self.assertExit(self.cli("run", "status", scenario="expired"), 1)
         self.assertErrorShape(run, "CREDENTIAL_EXPIRED")
         self.assertIn_("adcFallback:", run)
+
+    def test_the_fallback_notice_renders_once_for_a_multi_read_command(self):
+        """Two reads falling back to ADC owe the reader one notice, not two."""
+        run = self.assertOk(self.cli("overview", "--no-errors", scenario="adcfallback"))
+        self.assertEqual(
+            1, run.stdout.count("credentialFallback:"), run.describe()
+        )
+        retried = [c for c in run.calls if any("--access-token-file" in a for a in c)]
+        self.assertGreater(len(retried), 1, run.describe())
 
     def test_no_fallback_is_attempted_when_adc_cannot_mint_either(self):
         run = self.assertExit(self.cli("run", "status", scenario="bothlapsed"), 1)
@@ -273,6 +298,17 @@ class DiagnoseTest(CliTestCase):
         for command in (["grant"], ["revoke"]):
             run = self.assertExit(self.cli("diagnose", *command), 2)
             self.assertErrorShape(run, "NOT_DIAGNOSABLE")
+
+    def test_a_usage_error_costs_no_subprocess(self):
+        """Validation must come before the probes, or a typo pays for two mints."""
+        run = self.assertExit(self.cli("diagnose", "grant"), 2)
+        self.assertErrorShape(run, "NOT_DIAGNOSABLE")
+        self.assertFalse(run.calls, run.describe())
+
+    def test_an_unverifiable_probe_is_not_judged_a_lapse(self):
+        run = self.assertOk(self.cli("diagnose", scenario="probeoutage"))
+        self.assertIn_("verdict: credential-state-unverifiable", run)
+        self.assertNotIn_("credential-lapsed", run)
 
     def test_an_unknown_command_is_refused_by_name(self):
         run = self.assertExit(self.cli("diagnose", "nosuchthing"), 2)
@@ -401,6 +437,71 @@ class ProviderStatusOnErrorTest(CliTestCase):
         run = self.assertExit(self.cli("run", "status", scenario="denied"), 1)
         self.assertErrorShape(run, "PERMISSION_DENIED")
         self.assertNotIn_("providerOpenIncidents", run)
+
+
+class ProviderLookupScopeTest(unittest.TestCase):
+    """The incident feed is read at most once, and never for a discarded answer."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(ROOT, "src"))
+        from gcloud_axi import gcloudcmd, provider
+
+        self.gcloudcmd = gcloudcmd
+        self.provider = provider
+        provider._fetch_memo.clear()
+        self.addCleanup(provider._fetch_memo.clear)
+        os.environ["GCLOUD_AXI_PROVIDER_STATUS"] = "off"
+        self.addCleanup(os.environ.pop, "GCLOUD_AXI_PROVIDER_STATUS", None)
+
+    def _classify_5xx(self):
+        return self.gcloudcmd.classify(
+            ["run", "services", "list"],
+            "ERROR: (gcloud.run.services.list) HTTPError 503: Service Unavailable",
+            1,
+        )
+
+    def test_a_5xx_outside_any_override_is_annotated(self):
+        error = self._classify_5xx()
+        self.assertTrue(
+            [k for k, _ in error.fields if k.startswith("providerStatus")],
+            error.fields,
+        )
+
+    def test_no_annotation_is_attached_inside_a_credential_override(self):
+        """diagnose records only code+message; the annotation would be a discarded
+        network read per failing attempt."""
+        with self.gcloudcmd.using_credential(None):
+            error = self._classify_5xx()
+        self.assertEqual("PROVIDER_ERROR", error.code)
+        self.assertFalse(
+            [k for k, _ in error.fields if k.startswith("provider")], error.fields
+        )
+
+    def test_no_annotation_is_attached_under_explicit_suppression(self):
+        with self.gcloudcmd.suppress_provider_annotation():
+            error = self._classify_5xx()
+        self.assertFalse(
+            [k for k, _ in error.fields if k.startswith("provider")], error.fields
+        )
+
+    def test_the_feed_is_fetched_at_most_once_per_process(self):
+        """A command making several failing reads must not pay several lookups."""
+        import shutil
+        import tempfile
+
+        scratch = tempfile.mkdtemp(prefix="gcloud-axi-feed-")
+        self.addCleanup(shutil.rmtree, scratch, True)
+        feed = os.path.join(scratch, "incidents.json")
+        with open(feed, "w") as handle:
+            handle.write("[]")
+        os.environ["GCLOUD_AXI_PROVIDER_STATUS"] = "on"
+        os.environ["GCLOUD_AXI_STATUS_URL"] = "file://" + feed
+        self.addCleanup(os.environ.pop, "GCLOUD_AXI_STATUS_URL", None)
+
+        first = self.provider.fetch()
+        self.assertEqual(([], None), first)
+        os.remove(feed)
+        self.assertEqual(first, self.provider.fetch())
 
 
 class ServerErrorClassificationTest(unittest.TestCase):

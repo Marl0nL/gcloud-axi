@@ -49,6 +49,15 @@ LIVE = "live"
 LAPSED = "lapsed"
 ABSENT = "absent"
 UNPROBED = "not probed"
+# A probe the provider itself failed. A credential whose liveness could not be
+# PROVED is not the same as one proved dead, and blaming the operator's
+# identity during a provider incident is the costliest possible wrong answer.
+UNVERIFIABLE = "unverifiable (provider-side failure)"
+
+UNVERIFIABLE_FIX = (
+    "retry shortly, or run `gcloud-axi diagnose` for provider status - "
+    "re-authenticating will not fix a provider-side failure"
+)
 
 
 class Probe(object):
@@ -137,7 +146,7 @@ def probe_cli(probe=True):
     state, detail, _code = _mint_state(["auth", "print-access-token"])
     return Probe(
         "cli", state, identity, type_,
-        detail=detail, fix=None if state == LIVE else CLI_FIX, used_by=CLI_USED_BY,
+        detail=detail, fix=_fix_for(state, CLI_FIX), used_by=CLI_USED_BY,
     )
 
 
@@ -202,7 +211,7 @@ def probe_adc(probe=True):
     state, detail, code = _mint_state(
         ["auth", "application-default", "print-access-token"]
     )
-    if state != LIVE and not fields and code != "CREDENTIAL_EXPIRED":
+    if state not in (LIVE, UNVERIFIABLE) and not fields and code != "CREDENTIAL_EXPIRED":
         # Nothing on disk, and the refusal was not "this credential is stale":
         # ADC was never set up here. That is a different problem from an ADC
         # that has gone stale, and it takes the operator to the same command by
@@ -215,7 +224,7 @@ def probe_adc(probe=True):
         "adc", state, identity, type_,
         source or "the environment (no ADC file; gcloud resolved it elsewhere)",
         detail=detail if state != LIVE else note,
-        fix=None if state == LIVE else ADC_FIX,
+        fix=_fix_for(state, ADC_FIX),
         used_by=ADC_USED_BY,
     )
 
@@ -234,11 +243,22 @@ def _mint_state(args):
         if (result.data or "").strip():
             return LIVE, None, None
         return LAPSED, "the token mint returned nothing", "MINT_EMPTY"
-    return (
-        LAPSED,
-        getattr(result.error, "message", "the token mint failed"),
-        getattr(result.error, "code", None),
-    )
+    code = getattr(result.error, "code", None)
+    message = getattr(result.error, "message", "the token mint failed")
+    # A 5xx from the mint is the provider failing to answer, not the credential
+    # failing to work - reporting "lapsed" here would blame the operator's
+    # identity for a Google outage.
+    if code == "PROVIDER_ERROR":
+        return UNVERIFIABLE, message, code
+    return LAPSED, message, code
+
+
+def _fix_for(state, login_fix):
+    if state == LIVE:
+        return None
+    if state == UNVERIFIABLE:
+        return UNVERIFIABLE_FIX
+    return login_fix
 
 
 # -- materialising ADC for a fallback ---------------------------------------
@@ -265,24 +285,50 @@ def mint_adc_token_file():
 
 
 def summarise(cli, adc):
-    """One sentence naming which half is live - the aggregate, computed once."""
+    """One sentence naming which half is live - the aggregate, computed once.
+
+    Only a state proved dead (lapsed, absent) may be described as dead: an
+    unprobed or unverifiable credential got no verdict, and saying "not live"
+    about it would assert the very thing that was not checked.
+    """
     if cli.live and adc.live:
         return "both credentials are live"
     if cli.live and not adc.live:
+        if adc.state == UNPROBED:
+            return "the CLI credential is live; ADC liveness was not probed (--no-probe)"
+        if adc.state == UNVERIFIABLE:
+            return (
+                "the CLI credential is live; ADC could not be verified - the probe "
+                "failed provider-side, which proves nothing about ADC itself"
+            )
         return (
             "the CLI credential is live but ADC is %s - anything using a client "
             "library, Terraform/OpenTofu or a direct REST call will still fail" % adc.state
         )
     if adc.live and not cli.live:
+        if cli.state == UNPROBED:
+            return "ADC is live; CLI credential liveness was not probed (--no-probe)"
+        if cli.state == UNVERIFIABLE:
+            return (
+                "ADC is live; the CLI credential could not be verified - the probe "
+                "failed provider-side, which proves nothing about the credential itself"
+            )
         return (
             "ADC is live but the CLI credential is %s - `gcloud` will fail while "
             "client libraries and REST calls keep working" % cli.state
         )
+    if UNVERIFIABLE in (cli.state, adc.state):
+        return (
+            "liveness could not be verified - a probe failed provider-side, and a "
+            "credential that could not be proved live is not one proved dead"
+        )
+    if UNPROBED in (cli.state, adc.state):
+        return "liveness was not probed (--no-probe)"
     return "neither credential is live"
 
 
 def in_step(cli, adc):
-    """Whether the two halves agree. ``None`` when one side was not probed."""
-    if UNPROBED in (cli.state, adc.state):
+    """Whether the two halves agree. ``None`` when either side has no verdict."""
+    if UNPROBED in (cli.state, adc.state) or UNVERIFIABLE in (cli.state, adc.state):
         return None
     return cli.live == adc.live

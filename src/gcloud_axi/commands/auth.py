@@ -35,6 +35,9 @@ def help_out():
             "Neither restores the other, which is why 'auth is back' is worth checking twice",
             "Liveness is proved by minting a token, not by reading a config file - an account "
             "can be listed as active long after its refresh token stopped working",
+            "A probe the provider itself fails reports 'unverifiable (provider-side failure)', "
+            "not 'lapsed' - a liveness that could not be proved is not one disproved, and "
+            "re-authenticating is not the fix for a Google outage",
             "The minted tokens are discarded. This command prints no token value, writes no "
             "credential, and changes nothing about either one",
             "Read verbs fall back to ADC when the CLI credential is lapsed, and say so in "
@@ -124,7 +127,9 @@ def _remaining(expires):
 def _help_lines(cli, adc, marker):
     lines = []
     # The fix for the broken half leads, because that is the next thing typed.
-    if not cli.live and cli.fix:
+    # Only a state proved dead earns a login command: an unprobed or
+    # unverifiable credential got no verdict to act on.
+    if cli.state in (credentials.LAPSED, credentials.ABSENT) and cli.fix:
         if marker:
             lines.append(
                 "This is a scoped, tiered credential - ask whoever issued it for a "
@@ -132,8 +137,13 @@ def _help_lines(cli, adc, marker):
             )
         else:
             lines.append("Run `%s` to restore the CLI credential" % cli.fix)
-    if not adc.live and adc.fix:
+    if adc.state in (credentials.LAPSED, credentials.ABSENT) and adc.fix:
         lines.append("Run `%s` to restore ADC" % adc.fix)
+    if credentials.UNVERIFIABLE in (cli.state, adc.state):
+        lines.append(
+            "A liveness probe failed provider-side - retry shortly, and do not "
+            "re-authenticate on the strength of an unverifiable probe"
+        )
     if cli.live and adc.live:
         lines.append(
             "Both halves are live - a failure now is more likely the request, the "

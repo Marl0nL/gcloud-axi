@@ -94,14 +94,23 @@ def dispatch(ctx_factory, argv):
 
     own, command = _split(argv)
     args = flags.parse(own, DIAGNOSE_FLAGS, "diagnose", max_positional=0)
+    if command:
+        _validate(command)
     check_provider = not args.get("no-provider-status")
 
     out = toon.Out()
     out.field("target", " ".join(command) if command else "(no command - credentials and provider only)")
 
-    # -- rung 1: both credentials -------------------------------------------
-    cli = credentials.probe_cli()
-    adc = credentials.probe_adc()
+    # -- rungs 1 and 2: probes, then the same question as other identities --
+    # Both run with the automatic incident-feed annotation off: every outcome
+    # here keeps only code+message, and rung 3 below is this command's one
+    # provider consultation - which keeps --no-provider-status meaning what its
+    # help text says: reach no network.
+    with gcloudcmd.suppress_provider_annotation():
+        cli = credentials.probe_cli()
+        adc = credentials.probe_adc()
+        attempts = _attempt_all(ctx_factory, command, args, adc) if command else []
+
     out.raw("")
     out.block(
         "credentials",
@@ -114,10 +123,7 @@ def dispatch(ctx_factory, argv):
         ],
     )
 
-    # -- rung 2: the same question as another identity ----------------------
-    attempts = []
     if command:
-        attempts = _attempt_all(ctx_factory, command, args, adc)
         out.raw("")
         out.table(
             "attempts",
@@ -210,7 +216,6 @@ class Attempt(object):
 
 
 def _attempt_all(ctx_factory, command, args, adc):
-    _validate(command)
     # Diagnose's own --project/--region still have to reach the command, or the
     # attempts would be scoped differently from the invocation being diagnosed.
     forwarded = list(command[1:])
@@ -349,6 +354,18 @@ def _judge(cli, adc, command, attempts, live_incidents, feed_problem, args):
     hints = []
 
     if not command:
+        if credentials.UNVERIFIABLE in (cli.state, adc.state):
+            # A probe the provider failed reached no verdict; calling that a
+            # lapse would send the operator to a login command during an outage.
+            return (
+                "credential-state-unverifiable",
+                credentials.summarise(cli, adc),
+                [
+                    "Retry shortly - a provider-side probe failure is usually transient",
+                    "Check https://status.cloud.google.com/ before re-authenticating anything",
+                    "Run `gcloud-axi auth` for the full per-credential detail",
+                ],
+            )
         if not cli.live and not adc.live:
             return (
                 "both-credentials-lapsed",

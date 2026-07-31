@@ -90,7 +90,9 @@ Adding coverage for a new gcloud call means adding a fixture, not relaxing this:
   `run_services_list.access-token-file.json`, not `..._access_token_file.json`;
 - `<key>.err` plus optional `<key>.exit` simulate failures;
 - scenarios: `happy`, `empty`, `denied`, `expired`, `partial`, `noregion`,
-  `outage` (a 5xx plus an open incident feed), and the four credential states -
+  `outage` (a 5xx plus an open incident feed), `probeoutage` (the token mint
+  itself 5xxes, so liveness is unverifiable rather than lapsed), and the four
+  credential states -
   `adcfallback` (CLI lapsed, ADC live, read succeeds under ADC), `adclapsed`
   (the mirror image), `bothlapsed`, `identity` (ambient denied, another identity
   allowed). A scenario other than `happy` falls back to `happy` for keys it does

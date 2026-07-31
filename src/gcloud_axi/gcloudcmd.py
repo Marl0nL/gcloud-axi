@@ -68,6 +68,7 @@ AMBIENT = object()
 
 _override = None          # token-file path in force for every call, or None
 _fallback_enabled = True  # whether a lapsed CLI credential may retry under ADC
+_annotate_enabled = True  # whether a 5xx pulls the provider's incident feed
 _adc_scratch = None       # (directory, token_path) minted at most once, lazily
 _adc_attempted = False
 _notices = []
@@ -98,20 +99,47 @@ class using_credential(object):
         self._saved = None
 
     def __enter__(self):
-        global _override, _fallback_enabled
-        self._saved = (_override, _fallback_enabled)
-        _override, _fallback_enabled = self._token_file, False
+        global _override, _fallback_enabled, _annotate_enabled
+        self._saved = (_override, _fallback_enabled, _annotate_enabled)
+        _override, _fallback_enabled, _annotate_enabled = self._token_file, False, False
         return self
 
     def __exit__(self, *_exc):
-        global _override, _fallback_enabled
-        _override, _fallback_enabled = self._saved
+        global _override, _fallback_enabled, _annotate_enabled
+        _override, _fallback_enabled, _annotate_enabled = self._saved
+        return False
+
+
+class suppress_provider_annotation(object):
+    """Keep a 5xx in this block from pulling the incident feed.
+
+    For a caller that consults the provider itself - `diagnose` - or records
+    only code+message from a failure, the automatic annotation would be a
+    discarded network read per failing call.
+    """
+
+    def __enter__(self):
+        global _annotate_enabled
+        self._saved = _annotate_enabled
+        _annotate_enabled = False
+        return self
+
+    def __exit__(self, *_exc):
+        global _annotate_enabled
+        _annotate_enabled = self._saved
         return False
 
 
 def add_notice(pairs):
-    """Record something the caller must be told about how a call was made."""
-    _notices.append(list(pairs))
+    """Record something the caller must be told about how a call was made.
+
+    An identical payload is recorded once: a command that makes several calls
+    under the same fallback owes the reader one notice, not one per call.
+    """
+    entry = list(pairs)
+    if entry in _notices:
+        return
+    _notices.append(entry)
 
 
 def drain_notices():
@@ -413,9 +441,10 @@ def classify(args, stderr, returncode):
                 ("retryable", True),
             ],
         )
-        from . import provider
+        if _annotate_enabled:
+            from . import provider
 
-        provider.annotate(error)
+            provider.annotate(error)
         return error
     if _DISABLED_API.search(stderr):
         return GcloudError(
