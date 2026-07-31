@@ -47,8 +47,13 @@ class Context(object):
                 self.config.path
             )
             return
+        # A config lookup reads the local gcloud configuration and must answer
+        # for the ambient machine even inside a diagnose credential override -
+        # and a substituted credential may only carry read vectors anyway.
         result = gcloudcmd.invoke(
-            ["config", "get-value", "core/project", "--format=value(.)"], text=True
+            ["config", "get-value", "core/project", "--format=value(.)"],
+            text=True,
+            credential=gcloudcmd.AMBIENT,
         )
         if result.ok and result.data:
             value = result.data.strip()
@@ -89,7 +94,9 @@ class Context(object):
             self._region, self._region_source = from_config, "config"
             return
         result = gcloudcmd.invoke(
-            ["config", "get-value", "run/region", "--format=value(.)"], text=True
+            ["config", "get-value", "run/region", "--format=value(.)"],
+            text=True,
+            credential=gcloudcmd.AMBIENT,
         )
         if result.ok and result.data:
             value = result.data.strip()

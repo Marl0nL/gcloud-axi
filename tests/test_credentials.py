@@ -232,6 +232,75 @@ class FallbackIsReadOnlyTest(unittest.TestCase):
             self.assertFalse(self.gcloudcmd.is_read_only(args), args)
 
 
+class SubstitutedCredentialGateTest(unittest.TestCase):
+    """The allow-list is enforced where the credential is attached, not only
+    where the fallback decides to retry: a substituted credential on a non-read
+    vector is refused before any process exists to run it."""
+
+    def setUp(self):
+        import shutil
+        import tempfile
+
+        sys.path.insert(0, os.path.join(ROOT, "src"))
+        from gcloud_axi import gcloudcmd
+        from gcloud_axi.errors import GcloudError
+
+        self.gcloudcmd = gcloudcmd
+        self.GcloudError = GcloudError
+        scratch = tempfile.mkdtemp(prefix="gcloud-axi-gate-")
+        self.addCleanup(shutil.rmtree, scratch, True)
+        self.token_file = os.path.join(scratch, "access_token")
+        with open(self.token_file, "w") as handle:
+            handle.write("FAKE-TOKEN-FILE-CONTENTS-NOT-A-REAL-TOKEN")
+
+    def test_a_mutating_vector_is_refused_before_any_process_is_spawned(self):
+        import subprocess
+
+        real_popen = subprocess.Popen
+
+        def refuse_spawn(*_args, **_kwargs):
+            raise AssertionError("a process was spawned for a refused vector")
+
+        subprocess.Popen = refuse_spawn
+        self.addCleanup(setattr, subprocess, "Popen", real_popen)
+        with self.gcloudcmd.using_credential(self.token_file):
+            with self.assertRaises(self.GcloudError) as caught:
+                self.gcloudcmd.invoke(["run", "jobs", "execute", "my-job"])
+        self.assertEqual(
+            "REFUSED_UNDER_SUBSTITUTED_CREDENTIAL", caught.exception.code
+        )
+
+    def test_a_read_vector_still_runs_under_the_same_override(self):
+        os.environ["GCLOUD_AXI_GCLOUD"] = "/bin/echo"
+        self.addCleanup(os.environ.pop, "GCLOUD_AXI_GCLOUD", None)
+        with self.gcloudcmd.using_credential(self.token_file):
+            result = self.gcloudcmd.invoke(["run", "services", "list"], text=True)
+        self.assertTrue(result.ok, getattr(result.error, "message", None))
+        self.assertIn("--access-token-file=%s" % self.token_file, result.data)
+
+    def test_the_ambient_credential_is_never_gated(self):
+        os.environ["GCLOUD_AXI_GCLOUD"] = "/bin/echo"
+        self.addCleanup(os.environ.pop, "GCLOUD_AXI_GCLOUD", None)
+        result = self.gcloudcmd.invoke(
+            ["run", "jobs", "execute", "my-job"],
+            text=True,
+            credential=self.gcloudcmd.AMBIENT,
+        )
+        self.assertTrue(result.ok, getattr(result.error, "message", None))
+        self.assertNotIn("--access-token-file", result.data)
+
+    def test_an_override_of_none_substitutes_nothing_and_is_not_gated(self):
+        """diagnose's ambient attempt runs inside `using_credential(None)`."""
+        os.environ["GCLOUD_AXI_GCLOUD"] = "/bin/echo"
+        self.addCleanup(os.environ.pop, "GCLOUD_AXI_GCLOUD", None)
+        with self.gcloudcmd.using_credential(None):
+            result = self.gcloudcmd.invoke(
+                ["run", "jobs", "execute", "my-job"], text=True
+            )
+        self.assertTrue(result.ok, getattr(result.error, "message", None))
+        self.assertNotIn("--access-token-file", result.data)
+
+
 class DiagnoseTest(CliTestCase):
     """Finding 2: make the disproof cheap."""
 
@@ -568,7 +637,15 @@ class ProbeNeverBlamesTheOperatorTest(unittest.TestCase):
     The mirror assertion matters as much: a genuine rejection must still report
     LAPSED *with* the login command, or "never say lapsed" becomes a passing
     test and a broken tool.
+
+    Every shape is asserted through BOTH entry points that can produce a
+    credential verdict - the token mint in ``_mint_state`` and the identity
+    lookup (`auth list`) that precedes it in ``probe_cli``. The rule is the
+    distinction, not the instance, and it has to hold wherever a verdict can
+    be reached.
     """
+
+    ENTRY_POINTS = ("mint", "identity lookup")
 
     # Real gcloud stderr, not codes: the classifier is part of what is measured.
     PROBE_DID_NOT_COMPLETE = [
@@ -617,8 +694,7 @@ class ProbeNeverBlamesTheOperatorTest(unittest.TestCase):
         os.environ["GCLOUD_AXI_PROVIDER_STATUS"] = "off"
         self.addCleanup(os.environ.pop, "GCLOUD_AXI_PROVIDER_STATUS", None)
 
-    def _probe(self, stderr):
-        """Run the real classifier over ``stderr``, then the real state mapping."""
+    def _fail_every_call_with(self, stderr):
         real_invoke = self.gcloudcmd.invoke
         classify = self.gcloudcmd.classify
 
@@ -627,29 +703,48 @@ class ProbeNeverBlamesTheOperatorTest(unittest.TestCase):
 
         self.gcloudcmd.invoke = fake_invoke
         self.addCleanup(setattr, self.gcloudcmd, "invoke", real_invoke)
-        return self.credentials._mint_state(["auth", "print-access-token"])
+
+    def _probe(self, stderr, entry):
+        """Run the real classifier over ``stderr``, then the real state mapping.
+
+        Returns ``(state, detail, fixes)``, where ``fixes`` maps a credential
+        kind to the fix that entry point would offer for it.
+        """
+        self._fail_every_call_with(stderr)
+        if entry == "mint":
+            state, detail, _code = self.credentials._mint_state(
+                ["auth", "print-access-token"]
+            )
+            return state, detail, {
+                "cli": self.credentials._fix_for(state, self.credentials.CLI_FIX),
+                "adc": self.credentials._fix_for(state, self.credentials.ADC_FIX),
+            }
+        probe = self.credentials.probe_cli()
+        return probe.state, probe.detail, {"cli": probe.fix}
 
     def test_a_probe_that_did_not_complete_is_never_reported_as_a_lapse(self):
-        for label, stderr in self.PROBE_DID_NOT_COMPLETE:
-            state, detail, _code = self._probe(stderr)
-            self.assertEqual(
-                self.credentials.UNVERIFIABLE, state,
-                "%s was reported as %r - a probe that did not complete is not "
-                "proof the operator's credential is dead" % (label, state),
-            )
-            self.assertTrue(detail, label)
+        for entry in self.ENTRY_POINTS:
+            for label, stderr in self.PROBE_DID_NOT_COMPLETE:
+                state, detail, _fixes = self._probe(stderr, entry)
+                self.assertEqual(
+                    self.credentials.UNVERIFIABLE, state,
+                    "%s via the %s was reported as %r - a probe that did not "
+                    "complete is not proof the operator's credential is dead"
+                    % (label, entry, state),
+                )
+                self.assertTrue(detail, "%s via the %s" % (label, entry))
 
     def test_a_probe_that_did_not_complete_never_answers_re_authenticate(self):
-        for label, stderr in self.PROBE_DID_NOT_COMPLETE:
-            state, _detail, _code = self._probe(stderr)
-            for kind, login in (("cli", self.credentials.CLI_FIX),
-                                ("adc", self.credentials.ADC_FIX)):
-                fix = self.credentials._fix_for(state, login)
-                self.assertNotIn(
-                    "login", (fix or ""),
-                    "%s offered %r as the %s fix - re-authenticating cannot fix a "
-                    "probe that never completed" % (label, fix, kind),
-                )
+        for entry in self.ENTRY_POINTS:
+            for label, stderr in self.PROBE_DID_NOT_COMPLETE:
+                _state, _detail, fixes = self._probe(stderr, entry)
+                for kind, fix in sorted(fixes.items()):
+                    self.assertNotIn(
+                        "login", (fix or ""),
+                        "%s via the %s offered %r as the %s fix - re-authenticating "
+                        "cannot fix a probe that never completed"
+                        % (label, entry, fix, kind),
+                    )
 
     def test_an_empty_response_is_not_proof_of_a_lapse(self):
         real_invoke = self.gcloudcmd.invoke
@@ -664,25 +759,28 @@ class ProbeNeverBlamesTheOperatorTest(unittest.TestCase):
 
     def test_a_real_rejection_is_still_reported_as_a_lapse(self):
         """The mirror: the fix must not over-apply into never reporting a lapse."""
-        for label, stderr in self.PROVES_THE_CREDENTIAL_IS_DEAD:
-            state, _detail, _code = self._probe(stderr)
-            self.assertEqual(
-                self.credentials.LAPSED, state,
-                "%s was reported as %r - a rejected credential must still read as "
-                "lapsed" % (label, state),
-            )
+        for entry in self.ENTRY_POINTS:
+            for label, stderr in self.PROVES_THE_CREDENTIAL_IS_DEAD:
+                state, _detail, _fixes = self._probe(stderr, entry)
+                self.assertEqual(
+                    self.credentials.LAPSED, state,
+                    "%s via the %s was reported as %r - a rejected credential must "
+                    "still read as lapsed" % (label, entry, state),
+                )
 
     def test_a_real_rejection_still_offers_the_matching_login_command(self):
-        for label, stderr in self.PROVES_THE_CREDENTIAL_IS_DEAD:
-            state, _detail, _code = self._probe(stderr)
-            self.assertEqual(
-                self.credentials.CLI_FIX,
-                self.credentials._fix_for(state, self.credentials.CLI_FIX), label,
-            )
-            self.assertEqual(
-                self.credentials.ADC_FIX,
-                self.credentials._fix_for(state, self.credentials.ADC_FIX), label,
-            )
+        for entry in self.ENTRY_POINTS:
+            for label, stderr in self.PROVES_THE_CREDENTIAL_IS_DEAD:
+                _state, _detail, fixes = self._probe(stderr, entry)
+                self.assertEqual(
+                    self.credentials.CLI_FIX, fixes["cli"],
+                    "%s via the %s" % (label, entry),
+                )
+                if "adc" in fixes:
+                    self.assertEqual(
+                        self.credentials.ADC_FIX, fixes["adc"],
+                        "%s via the %s" % (label, entry),
+                    )
 
     def test_only_a_rejection_is_treated_as_proof(self):
         """The allow-list is the guarantee; assert it rather than infer it."""

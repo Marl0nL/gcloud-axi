@@ -26,6 +26,7 @@ DEFAULT_URL = "https://status.cloud.google.com/incidents.json"
 INCIDENT_BASE = "https://status.cloud.google.com/"
 DEFAULT_TIMEOUT = 4.0
 DESC_LIMIT = 240
+FEED_CAP_BYTES = 4 * 1024 * 1024
 
 # How many open incidents to render before saying how many were left out.
 SHOW_LIMIT = 5
@@ -77,9 +78,17 @@ def _fetch():
             url, headers={"User-Agent": "gcloud-axi", "Accept": "application/json"}
         )
         with urllib.request.urlopen(request, timeout=timeout()) as response:
-            body = response.read(4 * 1024 * 1024).decode("utf-8", "replace")
+            # One byte past the cap: enough to tell an oversized feed from a
+            # malformed one without unbounding the read.
+            raw = response.read(FEED_CAP_BYTES + 1)
     except (urllib.error.URLError, OSError, ValueError) as exc:
         return None, "could not reach the status feed: %s" % _brief(exc)
+    if len(raw) > FEED_CAP_BYTES:
+        return None, (
+            "the status feed exceeded the %d MiB size cap and was not parsed"
+            % (FEED_CAP_BYTES // (1024 * 1024))
+        )
+    body = raw.decode("utf-8", "replace")
     try:
         parsed = json.loads(body)
     except ValueError:

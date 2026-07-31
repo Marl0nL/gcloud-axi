@@ -301,7 +301,10 @@ help[3]:
 The restriction is enforced in the one module that spawns processes, against an
 **allow-list** of read verbs (`list`, `describe`, `read`, `get-iam-policy`,
 `get-value`) plus a mutating-verb deny-list - so a call added later is excluded
-by default rather than by anyone remembering to exclude it. `jobs run` never
+by default rather than by anyone remembering to exclude it. A non-read vector
+that would run under a substituted credential is refused outright
+(`REFUSED_UNDER_SUBSTITUTED_CREDENTIAL`), before any process is spawned - never
+quietly run as the ambient identity instead. `jobs run` never
 falls back. Neither does anything under `auth` or `config`, where asking the
 question as a borrowed identity would answer a different question.
 
@@ -598,7 +601,8 @@ the token-creator binding - along with who is currently affected. It runs
   identity, never material**.
 - **It never falls back on a mutating call.** The ADC fallback and `diagnose`'s
   cross-identity retry are read-only, enforced by an allow-list at the process
-  boundary rather than by convention.
+  boundary rather than by convention: a substituted credential on anything but
+  a recognised read vector is refused before a process exists to run it.
 - **It never prompts.** Every command is scriptable; `--quiet` is passed to
   gcloud on every call.
 - **It does not cover gcloud's surface.** It covers the dozen questions that

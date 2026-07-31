@@ -20,8 +20,9 @@ Then it states a verdict, because an operator who has to assemble the verdict
 themselves will assemble the one they already believed.
 
 Read-only by construction: only commands on :data:`DIAGNOSABLE` may be re-issued,
-and :mod:`gcloud_axi.gcloudcmd` independently refuses to run any non-read vector
-under a substituted credential.
+and :mod:`gcloud_axi.gcloudcmd` refuses - before any process is spawned, with
+``REFUSED_UNDER_SUBSTITUTED_CREDENTIAL`` - to attach a substituted credential to
+any vector outside its read-only allow-list.
 """
 
 from .. import config as config_mod
@@ -450,10 +451,23 @@ def _judge(cli, adc, command, attempts, live_incidents, feed_problem, args):
                 ],
             )
         if feed_problem:
+            # A feed the operator chose to skip is not a feed that failed; the
+            # reasoning must not claim a read that was never attempted.
+            if feed_problem.startswith("skipped"):
+                reasoning = (
+                    "every identity got the same server-side failure; the status "
+                    "feed was %s, so whether an incident is open was not checked"
+                    % feed_problem
+                )
+            else:
+                reasoning = (
+                    "every identity got the same server-side failure, and the "
+                    "status feed could not be read to confirm whether an incident "
+                    "is open"
+                )
             return (
                 "provider-side-status-unknown",
-                "every identity got the same server-side failure, and the status feed "
-                "could not be read to confirm whether an incident is open",
+                reasoning,
                 [
                     "Check https://status.cloud.google.com/ by hand",
                     "Retry once; a 5xx is frequently transient",

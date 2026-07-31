@@ -209,8 +209,9 @@ def invoke(args, project=None, text=False, env=None, timeout=None, credential=No
         ]
         return result
 
-    retried = _run(args, project=project, text=text, env=env, timeout=timeout,
-                   credential=token_path)
+    with suppress_provider_annotation():
+        retried = _run(args, project=project, text=text, env=env, timeout=timeout,
+                       credential=token_path)
     if not retried.ok:
         result.error.fields = list(result.error.fields) + [
             ("adcFallback", "attempted; the same call failed under ADC too"),
@@ -267,6 +268,22 @@ def _run(args, project=None, text=False, env=None, timeout=None, credential=None
         argv.append("--quiet")
 
     token_file = None if credential is AMBIENT else (credential or _override)
+    if token_file and not is_read_only(args):
+        # The read-only rule, enforced where the credential is attached rather
+        # than trusted to every call site: a vector outside the allow-list is
+        # refused, never silently run as the ambient credential instead.
+        raise GcloudError(
+            "refusing to run `gcloud %s` under a substituted credential - it is "
+            "not a recognised read-only vector"
+            % " ".join(a for a in args if not a.startswith("-")),
+            code="REFUSED_UNDER_SUBSTITUTED_CREDENTIAL",
+            help_lines=[
+                "A substituted credential (the ADC fallback, `diagnose` re-issuing a "
+                "call) may only carry read verbs: %s"
+                % ", ".join(sorted(READ_ONLY_VERBS)),
+                "Run the command as the ambient credential instead",
+            ],
+        )
     if token_file and not any(a.startswith("--access-token-file") for a in args):
         # The path, never the value: an argument vector is visible in every
         # process listing on the machine.

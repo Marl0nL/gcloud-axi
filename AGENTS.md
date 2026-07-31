@@ -178,7 +178,12 @@ the vector rather than at the end - `logging read <filter>` and `sql instances
 describe <name>` both carry a positional after the verb. Anything unrecognised
 gets no fallback, so a call added later is excluded by default. `auth` and
 `config` vectors are excluded outright: asking them as a borrowed identity
-answers a different question from the one asked.
+answers a different question from the one asked. The rule is structural, not a
+convention for call sites: `gcloudcmd._run` refuses - with
+`REFUSED_UNDER_SUBSTITUTED_CREDENTIAL`, before any process is spawned - to
+attach a substituted credential to a vector outside the allow-list, so the
+fallback's own `is_read_only` check is defence in depth in front of a gate that
+holds whoever the caller is.
 
 The ledger is append-only by construction: `grant` is the only writer and it
 only ever appends. There is deliberately no subcommand that edits or deletes a

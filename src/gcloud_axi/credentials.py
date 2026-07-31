@@ -119,10 +119,14 @@ def cli_identity():
     Never raises: every caller here has to render something even when gcloud
     is unhappy.
     """
-    info = {"account": None, "type": None, "error": None}
-    result = gcloudcmd.invoke(["auth", "list", "--filter=status:ACTIVE"])
+    info = {"account": None, "type": None, "error": None, "code": None}
+    with gcloudcmd.suppress_provider_annotation():
+        result = gcloudcmd.invoke(
+            ["auth", "list", "--filter=status:ACTIVE"], credential=gcloudcmd.AMBIENT
+        )
     if not result.ok:
         info["error"] = getattr(result.error, "message", "unavailable")
+        info["code"] = getattr(result.error, "code", None)
         return info
     entries = result.data or []
     if not isinstance(entries, list) or not entries:
@@ -142,9 +146,21 @@ def probe_cli(probe=True):
     identity, type_ = info.get("account"), info.get("type")
 
     if info.get("error"):
+        # The identity lookup is an entry point like the mint: only a code on
+        # the allow-list is proof of a lapse. A missing gcloud, a timeout or an
+        # unclassified failure stood in the way of the question, and must not
+        # be answered with "re-authenticate".
+        if info.get("code") in PROVES_LAPSE:
+            return Probe(
+                "cli", LAPSED, identity, type_,
+                detail=info["error"], fix=CLI_FIX, used_by=CLI_USED_BY,
+            )
         return Probe(
-            "cli", LAPSED, identity, type_,
-            detail=info["error"], fix=CLI_FIX, used_by=CLI_USED_BY,
+            "cli", UNVERIFIABLE, identity, type_,
+            detail="%s (the identity lookup failed with %s, which is not proof "
+                   "the credential is dead)"
+                   % (info["error"], info.get("code") or "an unclassified error"),
+            fix=UNVERIFIABLE_FIX, used_by=CLI_USED_BY,
         )
     if not identity:
         return Probe(
@@ -254,7 +270,10 @@ def _mint_state(args):
     that outlives this function and never reaches the caller - the point of a
     liveness probe is the verdict, not the material.
     """
-    result = gcloudcmd.invoke(args, text=True, credential=gcloudcmd.AMBIENT)
+    # A probe keeps only code+message from a failure, so the automatic incident
+    # annotation on a 5xx would be a discarded network read.
+    with gcloudcmd.suppress_provider_annotation():
+        result = gcloudcmd.invoke(args, text=True, credential=gcloudcmd.AMBIENT)
     if result.ok:
         # `result.data` is the token. Nothing reads it; it goes out of scope
         # with this frame.
@@ -299,11 +318,14 @@ def mint_adc_token_file():
     report a fallback that was attempted and did not help rather than raising a
     second, less informative failure over the first one.
     """
-    result = gcloudcmd.invoke(
-        ["auth", "application-default", "print-access-token"],
-        text=True,
-        credential=gcloudcmd.AMBIENT,
-    )
+    # The error is discarded entirely here; an incident lookup for it would be
+    # a network read nobody sees.
+    with gcloudcmd.suppress_provider_annotation():
+        result = gcloudcmd.invoke(
+            ["auth", "application-default", "print-access-token"],
+            text=True,
+            credential=gcloudcmd.AMBIENT,
+        )
     if not result.ok:
         return None, None
     token = (result.data or "").strip()
