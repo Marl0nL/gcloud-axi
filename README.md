@@ -22,7 +22,10 @@ inspection workflows for AI agents and automation:
   or Google.
 
 It is a single-file-per-module Python 3 package with **no dependencies beyond
-the standard library**, and it shells out only to `gcloud` itself.
+the standard library**, and it shells out only to `gcloud` itself. Its one
+network read of its own - [pulling Google's incident feed when a call fails
+server-side](#a-5xx-points-at-the-provider-without-being-asked) - can be
+switched off with `GCLOUD_AXI_PROVIDER_STATUS=off`.
 
 Built to the [axi conventions](https://axi.md/).
 
