@@ -67,6 +67,12 @@ class CredentialExpiredError(AxiError):
     code = "CREDENTIAL_EXPIRED"
 
 
+class ProviderError(AxiError):
+    """The far end failed, not the request. A 5xx, a backend error, an outage."""
+
+    code = "PROVIDER_ERROR"
+
+
 class GcloudError(AxiError):
     code = "GCLOUD_ERROR"
 

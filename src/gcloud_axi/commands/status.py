@@ -8,7 +8,7 @@ failures become fields rather than exceptions.
 
 import os
 
-from .. import __version__, context, flags, gcloudcmd
+from .. import __version__, context, credentials, flags, gcloudcmd
 from .. import helptext, resources, timeutil, toon
 
 STATUS_FLAGS = {"project": flags.VALUE, "region": flags.VALUE, "no-health": flags.BOOL}
@@ -20,6 +20,8 @@ def help_out():
         description="Agent-ergonomic wrapper around gcloud. With no arguments it prints ambient state.",
         subcommands=[
             "(none)      - active credential, resolved project, service health",
+            "auth        - probe BOTH credentials (CLI and ADC) and report which is live",
+            "diagnose    - is a failing read you, your permissions, the resource, or Google?",
             "overview    - whole-project aggregate in one call",
             "run         - Cloud Run service status and revisions",
             "logs        - bounded log reads for a service or job",
@@ -48,6 +50,10 @@ def help_out():
             "The file is optional - every read command works without one",
             "Credential tiering is optional and entirely declarative. `grant`, `ledger` and "
             "`revoke` explain how to configure it when no tiers are declared",
+            "The CLI credential and ADC lapse independently. This view shows both but proves "
+            "neither; `gcloud-axi auth` mints against each to prove which is actually live",
+            "When the CLI credential is lapsed, read verbs fall back to ADC and say so in a "
+            "`credentialFallback:` block. Mutating verbs never fall back",
             "This tool never reads a secret payload and never prints a token value",
         ],
         examples=[
@@ -100,6 +106,24 @@ def dispatch(ctx_factory, argv):
     out.raw("")
     out.block("credential", pairs)
 
+    # The other credential. ADC has its own refresh state, and a machine where
+    # only one of the two is healthy reads as fine from either half alone - so
+    # the ambient view names both. Presence is read from disk; proving liveness
+    # costs a token mint per credential, which is `gcloud-axi auth`'s job rather
+    # than something every ambient render should pay for.
+    adc = credentials.probe_adc(probe=False)
+    out.raw("")
+    out.block(
+        "adc",
+        [
+            ("declaredType", adc.type or "(no ADC file to declare one)"),
+            ("identity", adc.identity or "(not recorded)"),
+            ("wouldReadFrom", adc.source),
+            ("state", "%s here - run `gcloud-axi auth` to prove liveness" % adc.state),
+            ("usedBy", credentials.ADC_USED_BY),
+        ],
+    )
+
     # -- project -----------------------------------------------------------
     project = ctx.project(required=False)
     out.raw("")
@@ -123,14 +147,15 @@ def dispatch(ctx_factory, argv):
     # -- health ------------------------------------------------------------
     out.raw("")
     if args.get("no-health"):
-        out.field("health", "skipped (--no-health)")
+        health = "skipped (--no-health)"
     elif not project:
-        out.field("health", "unavailable - no project resolved")
+        health = "unavailable - no project resolved"
     else:
-        out.field("health", _health(ctx))
+        health = _health(ctx)
+    out.field("health", health)
 
     out.raw("")
-    out.help(_help_lines(cfg, project, marker))
+    out.help(_help_lines(cfg, project, marker, health))
     return out, 0
 
 
@@ -168,8 +193,18 @@ def _health(ctx):
     )
 
 
-def _help_lines(cfg, project, marker):
-    lines = ["Run `gcloud-axi overview` for the whole-project picture"]
+def _help_lines(cfg, project, marker, health=None):
+    lines = [
+        "Run `gcloud-axi overview` for the whole-project picture",
+        "Run `gcloud-axi auth` to prove which of the two credentials is actually live",
+    ]
+    if health and health.startswith("unavailable") and project:
+        # The one read this view performs already failed, so the next question
+        # is which layer failed - and that is a command, not a guess.
+        lines.append(
+            "Run `gcloud-axi diagnose run status` - the health probe failed, and that "
+            "tells you whether it is your credential, your permissions or Google"
+        )
     if not project:
         lines.append(
             "Run `gcloud-axi --project <project-id>` or set PROJECT in %s" % cfg.path

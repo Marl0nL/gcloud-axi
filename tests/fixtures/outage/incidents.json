@@ -1,0 +1,27 @@
+[
+  {
+    "id": "FAKEINCIDENT001",
+    "number": "00001",
+    "begin": "2026-07-31T09:12:00+00:00",
+    "created": "2026-07-31T09:20:00+00:00",
+    "end": null,
+    "service_key": "run",
+    "service_name": "Cloud Run",
+    "severity": "high",
+    "status_impact": "SERVICE_OUTAGE",
+    "external_desc": "Global: elevated error rates affecting multiple Google Cloud products. Requests may fail with 5xx responses.",
+    "uri": "incidents/FAKEINCIDENT001"
+  },
+  {
+    "id": "FAKEINCIDENT000",
+    "number": "00000",
+    "begin": "2026-07-20T09:12:00+00:00",
+    "end": "2026-07-20T11:00:00+00:00",
+    "service_key": "run",
+    "service_name": "Cloud Run",
+    "severity": "medium",
+    "status_impact": "SERVICE_DISRUPTION",
+    "external_desc": "A resolved incident, which must not be reported as open.",
+    "uri": "incidents/FAKEINCIDENT000"
+  }
+]

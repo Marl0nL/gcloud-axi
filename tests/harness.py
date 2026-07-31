@@ -18,6 +18,19 @@ SHIM_DIR = os.path.join(ROOT, "tests", "shim")
 FIXTURES = os.path.join(ROOT, "tests", "fixtures")
 
 
+def incidents_url(search):
+    """A ``file://`` URL for the first scenario that defines an incident feed.
+
+    Scenarios overlay `happy` the same way they do for gcloud fixtures, so a
+    scenario only carries `incidents.json` when it needs a different answer.
+    """
+    for directory in search:
+        path = os.path.join(directory, "incidents.json")
+        if os.path.isfile(path):
+            return "file://" + path
+    return "file://" + os.path.join(FIXTURES, "happy", "incidents.json")
+
+
 class Run(object):
     def __init__(self, code, stdout, stderr, calls):
         self.code = code
@@ -86,6 +99,13 @@ class CliTestCase(unittest.TestCase):
                 "FAKE_GCLOUD_FIXTURES": os.pathsep.join(search),
                 "FAKE_GCLOUD_LOG": self.call_log,
                 "GCLOUD_AXI_LEDGER": self.ledger_path,
+                # The provider-status lookup is the tool's only network read, so
+                # it is pointed at a fixture on disk. Every scenario gets one -
+                # an unset value would send the suite at status.cloud.google.com.
+                "GCLOUD_AXI_STATUS_URL": incidents_url(search),
+                "GOOGLE_APPLICATION_CREDENTIALS": os.path.join(
+                    self.home, "does-not-exist-adc.json"
+                ),
             }
         )
         if use_config:

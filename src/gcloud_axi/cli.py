@@ -7,9 +7,11 @@ subcommands.
 
 import sys
 
-from . import __version__, context
+from . import __version__, context, gcloudcmd, toon
 from .commands import (
+    auth,
     builds,
+    diagnose,
     grant,
     iam,
     jobs,
@@ -33,6 +35,8 @@ COMMANDS = {
     "secrets": secrets.dispatch,
     "iam": iam.dispatch,
     "builds": builds.dispatch,
+    "auth": auth.dispatch,
+    "diagnose": diagnose.dispatch,
     "grant": grant.dispatch,
     "ledger": ledger.dispatch,
     "revoke": revoke.dispatch,
@@ -82,7 +86,7 @@ def main(argv):
                 )
             out, code = handler(factory, rest)
     except AxiError as exc:
-        exc.render().emit()
+        _attach_notices(exc.render()).emit()
         return exc.exit_code
     except KeyboardInterrupt:
         AxiError("interrupted", code="INTERRUPTED").render().emit()
@@ -99,5 +103,20 @@ def main(argv):
         ).render().emit()
         return 1
 
-    out.emit()
+    _attach_notices(out).emit()
     return code
+
+
+def _attach_notices(out):
+    """Splice in anything the credential layer had to say about how it ran.
+
+    A read that quietly used a different credential than the caller believes is
+    a correctness problem, not a footnote - so this lands in the body of the
+    output, above `help[]`, on success and on failure alike.
+    """
+    for pairs in gcloudcmd.drain_notices():
+        block = toon.Out()
+        block.raw("")
+        block.block("credentialFallback", pairs)
+        out.insert_before_help(block.lines)
+    return out

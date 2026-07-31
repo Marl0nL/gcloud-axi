@@ -1,0 +1,3 @@
+ERROR: (gcloud.auth.application-default.print-access-token) There was a problem refreshing your current auth tokens: invalid_grant: reauth related error (invalid_rapt)
+Please run:
+  $ gcloud auth application-default login
